@@ -1,0 +1,40 @@
+{
+  "ticker": "AAPL",
+  "qlib_version": "0.9.8.dev31",
+  "data_start": "2010-01-04",
+  "last_observation": "2026-07-22",
+  "last_adjusted_close": 324.2900085449219,
+  "forecast_horizon": "next trading-day adjusted close",
+  "predicted_return": 0.0014123599761550706,
+  "predicted_close": 324.74802277365774,
+  "empirical_90pct_interval": [
+    317.78201310156174,
+    334.18152792827294
+  ],
+  "split": {
+    "train": [
+      "2010-03-31",
+      "2024-07-16"
+    ],
+    "valid": [
+      "2024-07-17",
+      "2025-07-18"
+    ],
+    "test": [
+      "2025-07-21",
+      "2026-07-21"
+    ],
+    "latest": [
+      "2026-07-22",
+      "2026-07-22"
+    ]
+  },
+  "holdout": {
+    "observations": 252,
+    "mae_return": 0.011049418348973728,
+    "rmse_return": 0.015454310107012946,
+    "direction_accuracy": 0.5277777777777778,
+    "correlation": -0.03370752828293587,
+    "zero_return_baseline_mae": 0.011051273136115475
+  }
+}
