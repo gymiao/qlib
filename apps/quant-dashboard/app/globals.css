@@ -1,0 +1,383 @@
+:root {
+  --ink: #f3f4ec;
+  --muted: #8d928b;
+  --panel: #151815;
+  --line: #2b302b;
+  --acid: #b8ff6a;
+  --green: #8de28f;
+  --orange: #ff9c67;
+  --background: #0b0d0b;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--background); }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 78% 7%, rgba(118, 180, 101, .12), transparent 27rem),
+    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+    var(--background);
+  background-size: auto, 48px 48px, 48px 48px, auto;
+  font-family: Arial, "Noto Sans SC", sans-serif;
+}
+
+button, input { font: inherit; }
+
+main {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 0 40px 32px;
+}
+
+.state {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.topbar {
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 13px; }
+.brandMark {
+  width: 39px;
+  height: 39px;
+  display: grid;
+  place-items: center;
+  background: var(--acid);
+  color: #10130e;
+  font: 800 22px/1 Georgia, serif;
+}
+.brand div { display: grid; gap: 2px; }
+.brand strong { font-size: 12px; letter-spacing: .18em; }
+.brand small, .topMeta { color: var(--muted); font-size: 12px; }
+.topNav { display: flex; gap: 28px; }
+.topNav a {
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: none;
+  letter-spacing: .12em;
+  transition: color .2s ease;
+}
+.topNav a:hover, .topNav a:focus-visible { color: var(--acid); }
+.topMeta { display: flex; align-items: center; gap: 9px; }
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acid);
+  box-shadow: 0 0 12px var(--acid);
+}
+
+.hero {
+  min-height: 380px;
+  padding: 74px 0 50px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.eyebrow, .microLabel {
+  color: var(--acid);
+  font: 700 11px/1.3 "Courier New", monospace;
+  letter-spacing: .16em;
+}
+
+h1 {
+  max-width: 850px;
+  margin: 19px 0 24px;
+  font: 400 clamp(48px, 6vw, 86px)/.98 Georgia, "Noto Serif SC", serif;
+  letter-spacing: -.055em;
+}
+
+.heroCopy {
+  max-width: 680px;
+  margin: 0;
+  color: #acb1aa;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.runStamp {
+  min-width: 175px;
+  padding: 18px 0 4px 22px;
+  display: grid;
+  border-left: 1px solid var(--line);
+}
+.runStamp span, .runStamp small {
+  color: var(--muted);
+  font: 11px/1.5 "Courier New", monospace;
+  letter-spacing: .12em;
+}
+.runStamp strong {
+  margin: 9px 0 2px;
+  color: var(--acid);
+  font: 400 52px/1 Georgia, serif;
+}
+
+.warningBanner {
+  padding: 16px 20px;
+  border: 1px solid rgba(255, 156, 103, .35);
+  background: rgba(255, 156, 103, .06);
+  color: #d5c1b5;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.warningBanner span {
+  margin-right: 16px;
+  color: var(--orange);
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.metricGrid {
+  margin: 24px 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+.metricCard {
+  min-height: 150px;
+  padding: 23px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(16, 19, 16, .76);
+}
+.metricCard > span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .1em;
+}
+.metricCard strong {
+  margin: auto 0 5px;
+  font: 400 38px/1 Georgia, serif;
+}
+.metricCard small { color: var(--muted); }
+.metricCard.positive strong { color: var(--acid); }
+.metricCard.warning strong { color: var(--orange); }
+
+.panel {
+  padding: 26px;
+  border: 1px solid var(--line);
+  background: rgba(17, 20, 17, .88);
+}
+.equityPanel { margin-bottom: 24px; }
+.panelHead {
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.panelHead > div:first-child { display: flex; align-items: baseline; gap: 14px; }
+.sectionNumber {
+  color: var(--acid);
+  font: 12px "Courier New", monospace;
+}
+h2 {
+  margin: 0;
+  font: 400 22px Georgia, "Noto Serif SC", serif;
+}
+.chartTools { display: flex; align-items: center; gap: 24px; }
+.legend { display: flex; gap: 22px; color: var(--muted); font-size: 12px; }
+.legend span { display: flex; align-items: center; gap: 8px; }
+.legend i { width: 20px; height: 2px; display: inline-block; }
+.strategySwatch { background: var(--acid); }
+.benchmarkSwatch { background: #6f7770; }
+.rangeControl {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  background: #0d100d;
+}
+.rangeControl button {
+  min-width: 45px;
+  padding: 6px 8px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font: 10px "Courier New", monospace;
+}
+.rangeControl button.active { color: #11150e; background: var(--acid); }
+
+.chartWrap { margin-top: 25px; overflow: hidden; }
+.chartWrap svg { width: 100%; min-width: 620px; overflow: visible; }
+.gridLine { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 6; }
+.axisLabel { fill: var(--muted); font: 10px "Courier New", monospace; }
+.strategyLine, .benchmarkLine { fill: none; vector-effect: non-scaling-stroke; }
+.strategyLine { stroke: var(--acid); stroke-width: 2.2; }
+.benchmarkLine { stroke: #687069; stroke-width: 1.5; }
+.strategyPoint { fill: var(--acid); filter: drop-shadow(0 0 5px var(--acid)); }
+.chartAxis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font: 10px "Courier New", monospace;
+}
+.emptyChart {
+  min-height: 290px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font: 11px "Courier New", monospace;
+}
+.emptyChart.compact { min-height: 150px; }
+
+.splitGrid {
+  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.lower { grid-template-columns: 1.15fr .85fr; }
+
+.comparison { margin-top: 24px; }
+.comparisonHead, .comparisonRow {
+  display: grid;
+  grid-template-columns: 1.2fr .8fr .8fr;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+}
+.comparisonHead { color: var(--muted); font-size: 10px; letter-spacing: .1em; }
+.comparisonHead strong, .comparisonHead em,
+.comparisonRow strong, .comparisonRow em { text-align: right; font-style: normal; }
+.comparisonRow span { color: #b4b8b2; font-size: 13px; }
+.comparisonRow strong { color: var(--acid); font-family: "Courier New", monospace; }
+.comparisonRow em { color: var(--muted); font-family: "Courier New", monospace; }
+
+.icChart {
+  height: 150px;
+  margin: 34px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+}
+.icChart span { flex: 1; min-width: 1px; }
+.icPositive { align-self: center; background: rgba(184, 255, 106, .72); }
+.icNegative { align-self: center; background: rgba(255, 117, 88, .65); }
+.signalStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+.signalStats div {
+  padding: 14px;
+  display: grid;
+  background: var(--panel);
+}
+.signalStats span { color: var(--muted); font-size: 10px; }
+.signalStats strong { margin-top: 7px; font: 400 19px Georgia, serif; }
+
+.holdingList { margin-top: 18px; }
+.holdingRow {
+  display: grid;
+  grid-template-columns: 32px 70px 1fr 70px;
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  font-family: "Courier New", monospace;
+}
+.holdingRow > span { color: #596059; font-size: 10px; }
+.holdingRow strong { font-size: 13px; }
+.holdingRow div { height: 3px; background: #262b26; }
+.holdingRow i { display: block; height: 100%; background: var(--acid); }
+.holdingRow em { text-align: right; color: var(--muted); font-size: 11px; font-style: normal; }
+
+.configList { margin: 20px 0 0; }
+.configList div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.configList dt { color: var(--muted); font-size: 12px; }
+.configList dd { margin: 0; text-align: right; font: 11px/1.4 "Courier New", monospace; }
+
+.periodsPanel { margin-bottom: 24px; }
+.periodTableWrap { margin-top: 18px; overflow-x: auto; }
+.periodTable {
+  width: 100%;
+  min-width: 660px;
+  border-collapse: collapse;
+  font: 12px "Courier New", monospace;
+}
+.periodTable th, .periodTable td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+.periodTable th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .08em;
+}
+.periodTable th:first-child, .periodTable td:first-child { padding-left: 0; text-align: left; }
+.periodTable td { color: #b8bcb6; }
+.periodTable .valuePositive { color: var(--acid); }
+.periodTable .valueNegative { color: var(--orange); }
+.periodTable tbody tr:hover { background: rgba(184, 255, 106, .025); }
+
+footer {
+  min-height: 76px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #5e645e;
+  font: 10px "Courier New", monospace;
+  letter-spacing: .08em;
+}
+
+@media (max-width: 900px) {
+  main { padding: 0 20px 24px; }
+  .hero { min-height: auto; padding: 55px 0 38px; }
+  .runStamp { display: none; }
+  .metricGrid { grid-template-columns: repeat(2, 1fr); }
+  .splitGrid, .lower { grid-template-columns: 1fr; }
+  .topNav { display: none; }
+}
+
+@media (max-width: 560px) {
+  main { padding-inline: 14px; }
+  .topMeta { display: none; }
+  h1 { font-size: 45px; }
+  .heroCopy { font-size: 14px; }
+  .metricGrid { grid-template-columns: 1fr; }
+  .metricCard { min-height: 125px; }
+  .legend { display: none; }
+  .chartTools { gap: 0; }
+  .panel { padding: 18px; }
+  .signalStats { grid-template-columns: 1fr; }
+  footer p { display: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .metricCard, .panel {
+    animation: rise .5s ease-out both;
+  }
+  .metricCard:nth-child(2) { animation-delay: .05s; }
+  .metricCard:nth-child(3) { animation-delay: .1s; }
+  .metricCard:nth-child(4) { animation-delay: .15s; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
