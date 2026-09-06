@@ -1,0 +1,102 @@
+{
+  "research_only": true,
+  "option_data_mode": "black_scholes_scenario_not_historical_quotes",
+  "configuration": {
+    "initial_cash": 100000.0,
+    "reduced_exposure": 0.7,
+    "target_volatility": 0.12,
+    "volatility_window": 20,
+    "max_exposure": 1.0,
+    "equity_cost_bps": 2.0,
+    "put_coverage": 1.0,
+    "put_moneyness": 0.95,
+    "put_dte": 63,
+    "put_roll_dte": 21,
+    "put_iv_multiplier": 1.15,
+    "annual_rate": 0.03,
+    "option_fee_per_contract": 0.65,
+    "option_half_spread": 0.03
+  },
+  "date_range": [
+    "2020-01-02",
+    "2024-12-31"
+  ],
+  "results": {
+    "QQQ": {
+      "buy_hold": {
+        "observations": 1258,
+        "total_return": 1.3650536747096726,
+        "annualized_return": 0.18835622278341146,
+        "annualized_volatility": 0.2564591822880752,
+        "sharpe": 0.8017904000083971,
+        "max_drawdown": -0.3561721518084682,
+        "daily_expected_shortfall_95": -0.03765684386318538
+      },
+      "cash_reduced": {
+        "observations": 1258,
+        "total_return": 1.004033038143883,
+        "annualized_return": 0.1495426334795742,
+        "annualized_volatility": 0.1901834291932456,
+        "sharpe": 0.8282818059641252,
+        "max_drawdown": -0.28015665697270964,
+        "daily_expected_shortfall_95": -0.027927106376115746
+      },
+      "volatility_target": {
+        "observations": 1258,
+        "total_return": 0.9362998312766033,
+        "annualized_return": 0.14164611022644347,
+        "annualized_volatility": 0.12846894129989442,
+        "sharpe": 1.0957394255052944,
+        "max_drawdown": -0.16384120498617327,
+        "daily_expected_shortfall_95": -0.01881196287486792
+      },
+      "protective_put_model": {
+        "observations": 1258,
+        "total_return": 0.7591912490503614,
+        "annualized_return": 0.11990118899939173,
+        "annualized_volatility": 0.14814680870901428,
+        "sharpe": 0.8386369691134279,
+        "max_drawdown": -0.27101226479220053,
+        "daily_expected_shortfall_95": -0.020606870726447925
+      }
+    },
+    "SPY": {
+      "buy_hold": {
+        "observations": 1258,
+        "total_return": 0.8040447745210582,
+        "annualized_return": 0.12556810003419483,
+        "annualized_volatility": 0.2107067507802011,
+        "sharpe": 0.6673649287016113,
+        "max_drawdown": -0.3410474689324394,
+        "daily_expected_shortfall_95": -0.03204030907495339
+      },
+      "cash_reduced": {
+        "observations": 1258,
+        "total_return": 0.6113503689720028,
+        "annualized_return": 0.10036531893419776,
+        "annualized_volatility": 0.14776531395538206,
+        "sharpe": 0.7214813032677121,
+        "max_drawdown": -0.2405327253847498,
+        "daily_expected_shortfall_95": -0.022600930222159327
+      },
+      "volatility_target": {
+        "observations": 1258,
+        "total_return": 0.6898155851565642,
+        "annualized_return": 0.11090421891483548,
+        "annualized_volatility": 0.12142325684901543,
+        "sharpe": 0.9271715376219587,
+        "max_drawdown": -0.1481212415084162,
+        "daily_expected_shortfall_95": -0.0183041310930694
+      },
+      "protective_put_model": {
+        "observations": 1258,
+        "total_return": 0.5574733669526779,
+        "annualized_return": 0.09288879503946657,
+        "annualized_volatility": 0.10342264809612421,
+        "sharpe": 0.9107211963184417,
+        "max_drawdown": -0.1455280583545835,
+        "daily_expected_shortfall_95": -0.014677772765916018
+      }
+    }
+  }
+}
