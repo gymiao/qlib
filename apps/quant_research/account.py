@@ -48,7 +48,7 @@ class Account:
         if price <= 0 or fee < 0:
             raise ValueError("price must be positive and fee cannot be negative")
         cash_change = -shares * price - fee
-        if self.cash + cash_change < -1e-8:
+        if self.cash + cash_change - self.cash_secured_put_reserve() < -1e-8:
             raise ValueError("insufficient cash")
         position = self.equities.setdefault(symbol, EquityPosition(symbol, 0.0))
         position.shares += shares
@@ -73,7 +73,7 @@ class Account:
             other_reserve = self.cash_secured_put_reserve(exclude=contract.contract_id)
             if self.cash + cash_change + 1e-8 < reserve + other_reserve:
                 raise ValueError("insufficient cash for cash-secured put")
-        elif self.cash + cash_change < -1e-8:
+        elif self.cash + cash_change - self.cash_secured_put_reserve() < -1e-8:
             raise ValueError("insufficient cash")
         self.cash += cash_change
         if new_contracts:

@@ -1,0 +1,26 @@
+{
+  "research_only": true,
+  "signal_mode": "frozen_signal_replay_not_historical_llm_performance",
+  "configuration": {
+    "initial_cash": 100000.0,
+    "transaction_cost_bps": 2.0
+  },
+  "date_range": [
+    "2020-01-02",
+    "2024-12-31"
+  ],
+  "base_metrics": {
+    "observations": 1258,
+    "total_return": 1.1963117423046277,
+    "annualized_return": 0.17085171510977104,
+    "annualized_volatility": 0.24128164527129428,
+    "max_drawdown": -0.3277645346417941
+  },
+  "overlay_metrics": {
+    "observations": 1258,
+    "total_return": 1.2207760375370875,
+    "annualized_return": 0.1734547536033222,
+    "annualized_volatility": 0.2010631497235423,
+    "max_drawdown": -0.31495922820596123
+  }
+}

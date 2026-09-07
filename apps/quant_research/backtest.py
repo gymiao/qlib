@@ -28,6 +28,7 @@ class HedgeBacktestConfig:
     annual_rate: float = 0.03
     option_fee_per_contract: float = 0.65
     option_half_spread: float = 0.03
+    initial_volatility: float = 0.20
 
     def __post_init__(self) -> None:
         if self.initial_cash <= 0:
@@ -36,15 +37,17 @@ class HedgeBacktestConfig:
             raise ValueError("exposure and coverage must be between zero and one")
         if not 0 < self.put_moneyness <= 1 or self.put_dte <= self.put_roll_dte:
             raise ValueError("invalid put moneyness or DTE configuration")
+        if self.initial_volatility <= 0:
+            raise ValueError("initial_volatility must be positive")
 
 
-def _metrics(equity: pd.Series) -> dict[str, float | int]:
+def _metrics(equity: pd.Series, initial_cash: float) -> dict[str, float | int]:
     returns = equity.pct_change().dropna()
     if returns.empty:
         return {}
     years = len(returns) / 252.0
-    total_return = float(equity.iloc[-1] / equity.iloc[0] - 1)
-    annual_return = float((equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1) if years else 0.0
+    total_return = float(equity.iloc[-1] / initial_cash - 1)
+    annual_return = float((equity.iloc[-1] / initial_cash) ** (1 / years) - 1) if years else 0.0
     volatility = float(returns.std(ddof=1) * sqrt(252))
     drawdown = equity / equity.cummax() - 1
     downside = returns[returns < 0]
@@ -94,6 +97,10 @@ def _volatility_target(prices: pd.Series, config: HedgeBacktestConfig) -> pd.Ser
         nav_before = cash + shares * float(price)
         desired_shares = nav_before * float(target.loc[current_date]) / float(price)
         trade = desired_shares - shares
+        if trade > 0:
+            affordable_trade = max(cash, 0.0) / (float(price) * (1 + fee_rate))
+            trade = min(trade, affordable_trade)
+            desired_shares = shares + trade
         cash -= trade * float(price) + abs(trade * float(price)) * fee_rate
         shares = desired_shares
         values.append(cash + shares * float(price))
@@ -104,9 +111,7 @@ def _volatility_target(prices: pd.Series, config: HedgeBacktestConfig) -> pd.Ser
 def _protective_put(prices: pd.Series, config: HedgeBacktestConfig) -> tuple[pd.Series, pd.DataFrame]:
     returns = prices.pct_change()
     trailing_vol = (returns.rolling(config.volatility_window).std() * sqrt(252)).shift(1)
-    fallback_vol = float(returns.iloc[1 : config.volatility_window + 1].std() * sqrt(252))
-    if not np.isfinite(fallback_vol) or fallback_vol <= 0:
-        fallback_vol = 0.20
+    fallback_vol = config.initial_volatility
     first = float(prices.iloc[0])
     fee_rate = config.equity_cost_bps / 10_000
     shares = config.initial_cash * config.reduced_exposure / (first * (1 + fee_rate))
@@ -125,6 +130,9 @@ def _protective_put(prices: pd.Series, config: HedgeBacktestConfig) -> tuple[pd.
         cash = _cash_growth(cash, config.annual_rate, elapsed)
         volatility = float(trailing_vol.loc[current_date]) if np.isfinite(trailing_vol.loc[current_date]) else fallback_vol
         volatility = max(volatility * config.put_iv_multiplier, 0.05)
+        if expiration is not None:
+            remaining = max((expiration - current_date.date()).days, 0) / 365.0
+            option_value = black_scholes_put(spot, strike, remaining, config.annual_rate, volatility)
         days_left = (expiration - current_date.date()).days if expiration else -1
         should_roll = contracts > 0 and (expiration is None or days_left <= config.put_roll_dte)
         if should_roll:
@@ -146,9 +154,6 @@ def _protective_put(prices: pd.Series, config: HedgeBacktestConfig) -> tuple[pd.
                 expiration = None
                 strike = 0.0
                 option_value = 0.0
-        if expiration is not None:
-            remaining = max((expiration - current_date.date()).days, 0) / 365.0
-            option_value = black_scholes_put(spot, strike, remaining, config.annual_rate, volatility)
         values.append(cash + shares * spot + contracts * 100 * option_value)
         previous_date = current_date
     return pd.Series(values, index=prices.index), pd.DataFrame(trades)
@@ -176,7 +181,7 @@ def run_hedge_comparison(prices: pd.DataFrame, config: HedgeBacktestConfig | Non
         strategies["protective_put_model"] = protected
         symbol_result = {}
         for name, equity in strategies.items():
-            symbol_result[name] = _metrics(equity)
+            symbol_result[name] = _metrics(equity, config.initial_cash)
             all_equity.append(pd.DataFrame({"date": equity.index, "symbol": symbol, "strategy": name, "equity": equity.values}))
         if not trades.empty:
             trades.insert(1, "symbol", symbol)

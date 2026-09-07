@@ -29,6 +29,13 @@ class AccountTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cash-secured"):
             account.trade_option(date(2024, 1, 2), second, -1, 1)
 
+    def test_equity_purchase_cannot_spend_cash_secured_put_reserve(self):
+        account = Account(10_000)
+        contract = OptionContract("A", "SPY", date(2024, 2, 16), 50)
+        account.trade_option(date(2024, 1, 2), contract, -1, 1)
+        with self.assertRaisesRegex(ValueError, "insufficient cash"):
+            account.trade_equity(date(2024, 1, 2), "QQQ", 60, 100)
+
     def test_delta_is_included_in_factor_dollars(self):
         account = Account(20_000)
         account.trade_equity(date(2024, 1, 2), "QQQ", 100, 100)

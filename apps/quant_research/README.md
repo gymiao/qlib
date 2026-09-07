@@ -32,3 +32,18 @@
 /home/mgy/miniconda3/envs/qlib/bin/python -m unittest discover \
   -s apps/quant_research/tests -v
 ```
+
+## TradingAgents 信号回放
+
+TradingAgents 通过 `research_signal.v1` JSONL 记录导出已完成的研究意见；Qlib 只在
+`available_at <= decision_time < valid_until` 时读取它们。导入协议见
+`docs/integration/research_signal_v1.md`。使用冻结信号进行机制回放：
+
+```bash
+/home/mgy/miniconda3/envs/qlib/bin/python -m apps.quant_research.run_signal_replay \
+  --signals examples/data/research_signals_fixture.jsonl \
+  --start 2020-01-01 --end 2025-01-01 \
+  --output-dir .artifacts/tradingagents_signal_replay
+```
+
+这个 fixture 只验证信号导入、时间校验、仓位覆盖层和账本回放，不是历史 LLM 策略业绩。
