@@ -1,0 +1,19 @@
+schema_version: 2
+profile: etf_cash_demo
+random_seed: 42
+account:
+  currency: USD
+  seed_cash: 100000
+  allow_borrowing: false
+  settled_cash_only: true
+  fractional_shares: false
+universe:
+  instruments: [QQQ, SPY]
+execution:
+  equity_one_way_cost_bps: 10
+  missing_open: reject
+  insufficient_cash: reject
+  settlement_days: 1
+comparison:
+  initial_target_weights: {QQQ: 0.45, SPY: 0.45}
+  reduced_target_weights: {QQQ: 0.30, SPY: 0.30}

@@ -1,0 +1,29 @@
+{
+  "default_model": "nasdaq100-cross-sectional",
+  "models": [
+    {
+      "id": "nasdaq100-cross-sectional",
+      "name": "Nasdaq-100 横截面多空模型",
+      "description": "预测未来5日Beta调整收益，做多Top 10、做空Bottom 10并控制净Beta",
+      "category": "统计套利",
+      "status": "active",
+      "data_url": "/data/dashboard.json"
+    },
+    {
+      "id": "dynamic-hedging",
+      "name": "动态对冲模型",
+      "description": "根据组合 Beta、市场风险与波动状态动态调整对冲比例",
+      "category": "对冲",
+      "status": "planned",
+      "data_url": "/data/dynamic-hedging.json"
+    },
+    {
+      "id": "protective-put",
+      "name": "Protective Put 模型",
+      "description": "选择保护性看跌期权的启用时机、执行价、期限和配置比例",
+      "category": "期权",
+      "status": "planned",
+      "data_url": "/data/protective-put.json"
+    }
+  ]
+}

@@ -63,6 +63,18 @@ class ResearchBacktestTest(unittest.TestCase):
         self.assertNotIn("E", weights.index)
         self.assertAlmostEqual(weights.sum(), 0.45)
 
+    def test_long_only_respects_sector_deviation(self):
+        scores = pd.Series({"A": 10, "B": 9, "C": 8, "D": 7, "E": 6})
+        sectors = pd.Series({"A": "tech", "B": "tech", "C": "health", "D": "finance", "E": "health"})
+        weights = select_long_only(
+            scores, top_k=3, max_weight=1 / 3, sectors=sectors,
+            benchmark_sector_weights={"tech": 0.34, "health": 0.33, "finance": 0.33},
+            max_sector_deviation=0.05,
+        )
+        self.assertEqual(set(weights.index), {"A", "C", "D"})
+        actual = weights.groupby(sectors.loc[weights.index]).sum()
+        self.assertLessEqual(actual["tech"], 0.39)
+
 
 if __name__ == "__main__":
     unittest.main()
