@@ -1,0 +1,74 @@
+name: Quant research validation
+
+on:
+  pull_request:
+    paths:
+      - "apps/quant_research/**"
+      - "apps/quant-dashboard/**"
+      - "examples/nasdaq100_medium_low_frequency.py"
+      - "tests/test_nasdaq100_medium_low_frequency.py"
+      - "RESEARCH_SYSTEM_USAGE.md"
+      - "RESEARCH_IMPLEMENTATION_PROGRESS.md"
+      - ".github/workflows/quant-research.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/quant_research/**"
+      - "apps/quant-dashboard/**"
+      - "examples/nasdaq100_medium_low_frequency.py"
+      - "tests/test_nasdaq100_medium_low_frequency.py"
+      - ".github/workflows/quant-research.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: quant-research-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python contracts and workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install Qlib and test dependencies
+        run: python -m pip install -e .
+      - name: Run quant research unit tests
+        run: python -m unittest discover -s apps/quant_research/tests -v
+      - name: Run Nasdaq workflow tests
+        run: >-
+          python -c "import tests.test_nasdaq100_medium_low_frequency as t;
+          fs=[getattr(t,n) for n in dir(t) if n.startswith('test_')];
+          [f() for f in fs];
+          print(f'Ran {len(fs)} Nasdaq workflow tests: OK')"
+      - name: Run Dashboard exporter tests
+        run: python -m unittest discover -s apps/quant-dashboard/scripts -p 'test_*.py' -v
+      - name: Compile Python sources
+        run: python -m compileall -q apps/quant_research examples/nasdaq100_medium_low_frequency.py
+
+  dashboard:
+    name: Dashboard typecheck and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/quant-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/quant-dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

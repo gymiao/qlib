@@ -2,18 +2,78 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from dataclasses import asdict
+import fcntl
+from hashlib import sha256
 import json
 from math import isfinite
 import os
 from pathlib import Path
 import tempfile
+from typing import Callable, TypeVar
 
 from .contracts import OrderPlan, as_payload, canonical_hash
 from .ledger import EventLedger, LedgerEvent
+
+
+T = TypeVar("T")
+
+
+class ConcurrentStateError(RuntimeError):
+    """Raised when a stale simulator instance tries to replace newer state."""
+
+
+@contextmanager
+def _state_lock(path: Path, *, exclusive: bool):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _event_chain_head(events: list[LedgerEvent]) -> str:
+    head = "0" * 64
+    for event in events:
+        head = canonical_hash({"previous": head, "event": asdict(event)})
+    return head
+
+
+def _fsync_directory(path: Path) -> None:
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _archive_state_version(destination: Path, content_sha256: str, encoded: bytes) -> None:
+    history = destination.with_name(f".{destination.name}.history")
+    history.mkdir(parents=True, exist_ok=True)
+    archived = history / f"{content_sha256}.json"
+    if archived.exists():
+        if archived.read_bytes() != encoded:
+            raise ValueError("simulator state history hash collision or corruption")
+        return
+    handle, temporary = tempfile.mkstemp(prefix=".archive-", dir=history)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, archived)
+        _fsync_directory(history)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 @dataclass(frozen=True)
@@ -41,6 +101,11 @@ class PaperSimulator:
         self.fee_rate = Decimal(str(fee_bps)) / Decimal("10000")
         self.results: dict[str, PlanResult] = {}
         self.progress: dict[str, PlanProgress] = {}
+        self.state_revision = 0
+        self.previous_content_sha256: str | None = None
+        self.content_sha256: str | None = None
+        self._storage_path: Path | None = None
+        self._storage_token: str | None = None
 
     def execute(
         self,
@@ -158,6 +223,9 @@ class PaperSimulator:
             ),
             "event_count": len(self.ledger.events),
             "account_basis_hash": self.ledger.basis_hash(),
+            "state_revision": self.state_revision,
+            "content_sha256": self.content_sha256,
+            "event_chain_head": _event_chain_head(self.ledger.events),
         }
 
     def _save(self, result: PlanResult) -> PlanResult:
@@ -166,9 +234,26 @@ class PaperSimulator:
 
     def save(self, path: Path | str) -> None:
         destination = Path(path)
+        with _state_lock(destination, exclusive=True):
+            self._save_unlocked(destination)
+
+    def _save_unlocked(self, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
+        resolved = destination.resolve()
+        current_encoded = None
+        if destination.exists():
+            current_encoded = destination.read_bytes()
+            current_token = sha256(current_encoded).hexdigest()
+            if self._storage_path != resolved or self._storage_token != current_token:
+                raise ConcurrentStateError("simulator state changed since it was loaded")
+        elif self._storage_path is not None and self._storage_path == resolved:
+            raise ConcurrentStateError("simulator state disappeared since it was loaded")
+        next_revision = self.state_revision + 1
         payload = {
-            "schema_version": "paper_simulator.v2",
+            "schema_version": "paper_simulator.v3",
+            "state_revision": next_revision,
+            "previous_content_sha256": self.content_sha256,
+            "event_chain_head": _event_chain_head(self.ledger.events),
             "initial_cash": str(self.ledger.initial_cash),
             "fee_rate": str(self.fee_rate),
             "events": [asdict(event) for event in self.ledger.events],
@@ -184,22 +269,79 @@ class PaperSimulator:
                 for plan_id, item in sorted(self.progress.items())
             },
         }
+        payload["content_sha256"] = canonical_hash(payload)
+        encoded = (json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+        if self.content_sha256 is not None and current_encoded is not None:
+            _archive_state_version(destination, self.content_sha256, current_encoded)
         handle, temporary = tempfile.mkstemp(prefix=f".{destination.name}-", dir=destination.parent)
-        os.close(handle)
         temporary_path = Path(temporary)
         try:
-            temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
             os.replace(temporary_path, destination)
+            _fsync_directory(destination.parent)
         except Exception:
             temporary_path.unlink(missing_ok=True)
             raise
+        self.state_revision = next_revision
+        self.previous_content_sha256 = payload["previous_content_sha256"]
+        self.content_sha256 = payload["content_sha256"]
+        self._storage_path = resolved
+        self._storage_token = sha256(encoded).hexdigest()
 
     @classmethod
     def load(cls, path: Path | str) -> "PaperSimulator":
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        if payload.get("schema_version") not in {"paper_simulator.v1", "paper_simulator.v2"}:
+        source = Path(path)
+        with _state_lock(source, exclusive=False):
+            return cls._load_unlocked(source)
+
+    @classmethod
+    def _load_unlocked(cls, source: Path) -> "PaperSimulator":
+        encoded = source.read_bytes()
+        payload = json.loads(encoded.decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema_version") not in {
+            "paper_simulator.v1",
+            "paper_simulator.v2",
+            "paper_simulator.v3",
+        }:
             raise ValueError("unsupported simulator state version")
+        if payload["schema_version"] == "paper_simulator.v3":
+            required = {
+                "schema_version",
+                "state_revision",
+                "previous_content_sha256",
+                "event_chain_head",
+                "initial_cash",
+                "fee_rate",
+                "events",
+                "results",
+                "progress",
+                "content_sha256",
+            }
+            if set(payload) != required:
+                raise ValueError("simulator v3 state fields are invalid")
+            content_sha256 = payload["content_sha256"]
+            identity = {key: value for key, value in payload.items() if key != "content_sha256"}
+            if not isinstance(content_sha256, str) or content_sha256 != canonical_hash(identity):
+                raise ValueError("simulator state content hash mismatch")
+            revision = payload["state_revision"]
+            previous = payload["previous_content_sha256"]
+            if (
+                isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or revision < 1
+                or (previous is not None and (not isinstance(previous, str) or len(previous) != 64))
+            ):
+                raise ValueError("simulator state revision metadata is invalid")
+        else:
+            revision = 0
+            previous = None
+            content_sha256 = None
         events = [LedgerEvent(**event) for event in payload["events"]]
+        if payload.get("event_chain_head") not in {None, _event_chain_head(events)}:
+            raise ValueError("simulator event chain mismatch")
         ledger = EventLedger.replay(payload["initial_cash"], events)
         simulator = cls(ledger, fee_bps=float(Decimal(payload["fee_rate"]) * Decimal("10000")))
         simulator.results = {
@@ -218,4 +360,44 @@ class PaperSimulator:
             )
             for plan_id, item in payload.get("progress", {}).items()
         }
+        simulator.state_revision = revision
+        simulator.previous_content_sha256 = previous
+        simulator.content_sha256 = content_sha256
+        simulator._storage_path = source.resolve()
+        simulator._storage_token = sha256(encoded).hexdigest()
         return simulator
+
+
+class SimulatorStateStore:
+    """Cross-process transaction boundary for one simulator state file."""
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path)
+
+    def create(self, simulator: PaperSimulator) -> PaperSimulator:
+        with _state_lock(self.path, exclusive=True):
+            if self.path.exists():
+                raise FileExistsError("simulator state already exists; create will not overwrite it")
+            simulator._save_unlocked(self.path)
+            return simulator
+
+    def load(self) -> PaperSimulator:
+        with _state_lock(self.path, exclusive=False):
+            return PaperSimulator._load_unlocked(self.path)
+
+    def transact(
+        self,
+        operation: Callable[[PaperSimulator], T],
+        *,
+        expected_content_sha256: str | None = None,
+    ) -> tuple[T, PaperSimulator]:
+        with _state_lock(self.path, exclusive=True):
+            simulator = PaperSimulator._load_unlocked(self.path)
+            if (
+                expected_content_sha256 is not None
+                and simulator.content_sha256 != expected_content_sha256
+            ):
+                raise ConcurrentStateError("simulator content hash does not match the expected version")
+            result = operation(simulator)
+            simulator._save_unlocked(self.path)
+            return result, simulator

@@ -1,0 +1,20 @@
+{
+  "account_snapshot_ref": "35c65f9ef01ec132afd537a4e2debe9ef3091a5196fc6a24c9ade7e42ba6c346",
+  "expires_at": "2026-09-15T20:10:00Z",
+  "orders": [
+    {
+      "estimated_fee": 1.0,
+      "instrument": "inst-qqq",
+      "max_price": 400.0,
+      "quantity": -2.0
+    }
+  ],
+  "plan_basis_hash": "bcc5e0a156ee3336e0ea26e68846d500ece8b3f48ff43c8d2fdf993794887cf3",
+  "plan_id": "demo-sell-qqq-2",
+  "reason_codes": [],
+  "reservations": {},
+  "schema_version": "order_plan.v1",
+  "source_ids": [
+    "demo-signal-1"
+  ]
+}

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from typing import Any
 
 
@@ -44,6 +45,13 @@ class FeatureBatch:
         forbidden = {"label", "target", "forward_return"}
         if forbidden.intersection(self.columns):
             raise ValueError("feature batches cannot contain labels or forward returns")
+        decision_time = datetime.fromisoformat(self.decision_time.replace("Z", "+00:00"))
+        if decision_time.tzinfo is None:
+            raise ValueError("feature decision_time must include a timezone")
+        if not self.feature_schema_id or not self.data_snapshot_id:
+            raise ValueError("feature batch identities cannot be empty")
+        if len(set(self.columns)) != len(self.columns) or any(not column for column in self.columns):
+            raise ValueError("feature columns must be unique non-empty names")
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,20 @@ class SignalBatch:
             raise ValueError("generator_kind must be model or rule")
         if self.generator_kind == "model" and not self.model_id:
             raise ValueError("model signals require model_id")
+        decision_time = datetime.fromisoformat(self.decision_time.replace("Z", "+00:00"))
+        valid_until = datetime.fromisoformat(self.valid_until.replace("Z", "+00:00"))
+        if decision_time.tzinfo is None or valid_until.tzinfo is None:
+            raise ValueError("signal timestamps must include a timezone")
+        if valid_until <= decision_time:
+            raise ValueError("valid_until must be after decision_time")
+        if self.horizon is not None and self.horizon <= 0:
+            raise ValueError("signal horizon must be positive")
+        if self.generator_kind == "model" and not self.scores:
+            raise ValueError("model signal scores cannot be empty")
+        if any(not isinstance(key, str) or not key for key in self.scores):
+            raise ValueError("signal score identifiers must be non-empty strings")
+        if any(not math.isfinite(float(value)) for value in self.scores.values()):
+            raise ValueError("signal scores must be finite")
 
 
 @dataclass(frozen=True)

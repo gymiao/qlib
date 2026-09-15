@@ -9,7 +9,94 @@ from decimal import Decimal
 import pandas as pd
 
 from .ledger import EventLedger, LedgerEvent
-from .option_quotes import available_chain, select_fixed_protective_put
+from .option_lifecycle import validate_option_lifecycle_events
+from .option_quotes import (
+    available_chain,
+    select_fixed_covered_call,
+    select_fixed_protective_put,
+)
+
+
+_NON_HISTORICAL_SOURCE_MARKERS = ("synthetic", "demo", "fixture", "scenario")
+_LIFECYCLE_EVIDENCE_COLUMNS = {
+    "source", "source_kind", "option_type", "listed_at", "last_trade_at",
+    "exercise_style", "settlement_type", "deliverable_instrument_id",
+}
+
+
+def _quote_evidence(quotes: pd.DataFrame) -> dict[str, str]:
+    complete = _LIFECYCLE_EVIDENCE_COLUMNS.issubset(quotes.columns) and not quotes.empty
+    if complete:
+        complete = (
+            not quotes[list(_LIFECYCLE_EVIDENCE_COLUMNS)].isna().any().any()
+            and quotes["source"].astype(str).str.strip().ne("").all()
+            and quotes["option_type"].isin({"put", "call"}).all()
+            and quotes["exercise_style"].isin({"american", "european"}).all()
+            and quotes["settlement_type"].eq("physical").all()
+            and quotes["deliverable_instrument_id"].eq(quotes["underlying"]).all()
+        )
+        times = {
+            column: pd.to_datetime(quotes[column], utc=True, errors="coerce")
+            for column in ("listed_at", "quote_ts", "available_at", "last_trade_at", "expiration")
+        }
+        complete = complete and all(values.notna().all() for values in times.values())
+        complete = complete and (
+            (times["listed_at"] <= times["quote_ts"]).all()
+            and (times["quote_ts"] <= times["available_at"]).all()
+            and (times["quote_ts"] <= times["last_trade_at"]).all()
+            and (times["last_trade_at"] <= times["expiration"]).all()
+        )
+    if complete:
+        kinds = quotes["source_kind"].astype(str).str.strip().str.lower()
+        names = quotes["source"].astype(str).str.strip().str.lower()
+        historical = kinds.eq("historical_observed").all() and not names.apply(
+            lambda value: any(marker in value for marker in _NON_HISTORICAL_SOURCE_MARKERS)
+        ).any()
+        if historical:
+            return {
+                "quote_mode": "historical_bid_ask",
+                "evidence_capability": "historical_option_quote_replay",
+            }
+        if kinds.isin({"synthetic", "scenario_only"}).all():
+            return {
+                "quote_mode": "synthetic_bid_ask_fixture",
+                "evidence_capability": "scenario_only",
+            }
+    return {
+        "quote_mode": "unverified_bid_ask",
+        "evidence_capability": "scenario_only",
+    }
+
+
+def _validate_physical_contract(
+    metadata: pd.Series,
+    *,
+    underlying: str,
+    option_type: str,
+) -> None:
+    if "option_type" in metadata and str(metadata["option_type"]).lower() != option_type:
+        raise ValueError(f"strategy requires an explicit {option_type} contract")
+    if "settlement_type" in metadata and str(metadata["settlement_type"]).lower() != "physical":
+        raise ValueError("this option replay requires physical settlement")
+    if "deliverable_instrument_id" in metadata:
+        deliverable = str(metadata["deliverable_instrument_id"]).strip()
+        if pd.isna(metadata["deliverable_instrument_id"]) or deliverable != underlying:
+            raise ValueError("adjusted or mismatched option deliverable is unsupported")
+
+
+def _lifecycle_evidence(events: pd.DataFrame | None) -> dict[str, object]:
+    if events is None:
+        return {"mode": "not_provided", "observed_event_count": 0, "capability": "scenario_only"}
+    kinds = events["source_kind"].astype(str).str.strip().str.lower()
+    names = events["source"].astype(str).str.strip().str.lower()
+    historical = not events.empty and kinds.eq("historical_observed").all() and not names.apply(
+        lambda value: any(marker in value for marker in _NON_HISTORICAL_SOURCE_MARKERS)
+    ).any()
+    return {
+        "mode": "observed_events" if historical else "non_historical_events",
+        "observed_event_count": len(events),
+        "capability": "observed_historical_events" if historical else "scenario_only",
+    }
 
 
 def _at_end_of_day(value: pd.Timestamp) -> pd.Timestamp:
@@ -44,6 +131,7 @@ def run_fixed_protective_put(
         return {
             "schema_version": "protective_put_report.v1",
             "status": "infeasible",
+            **_quote_evidence(quotes),
             "selection": asdict(selection),
             "equity_curve": pd.DataFrame(),
             "events": [asdict(event) for event in ledger.events],
@@ -51,6 +139,7 @@ def run_fixed_protective_put(
     contract_id = str(selection.contract_id)
     contract_quotes = quotes.loc[quotes["contract_id"] == contract_id].sort_values("available_at")
     metadata = contract_quotes.iloc[0]
+    _validate_physical_contract(metadata, underlying=underlying, option_type="put")
     fee = selection.contracts * fee_per_contract
     ledger.apply(LedgerEvent("buy-put", pd.Timestamp(decision_time).isoformat(), "option_fill", {
         "contract_id": contract_id,
@@ -110,10 +199,221 @@ def run_fixed_protective_put(
     return {
         "schema_version": "protective_put_report.v1",
         "status": "complete",
-        "quote_mode": "historical_bid_ask",
+        **_quote_evidence(quotes),
         "selection": asdict(selection),
         "equity_curve": pd.DataFrame(rows),
         "events": [asdict(event) for event in ledger.events],
+    }
+
+
+def run_fixed_covered_call(
+    underlying_prices: pd.Series,
+    quotes: pd.DataFrame,
+    underlying: str,
+    owned_shares: int,
+    initial_cash: float,
+    target_dte: int = 45,
+    target_moneyness: float = 1.05,
+    fee_per_contract: float = 0.65,
+    min_quote_coverage: float = 0.8,
+    assignment_events: pd.DataFrame | None = None,
+) -> dict:
+    """Replay a covered call through observed early assignment or expiry."""
+    prices = underlying_prices.sort_index().astype(float)
+    if (
+        prices.empty
+        or not prices.index.is_unique
+        or (prices <= 0).any()
+        or isinstance(owned_shares, bool)
+        or not isinstance(owned_shares, int)
+        or owned_shares <= 0
+        or initial_cash < 0
+        or fee_per_contract < 0
+        or not 0 <= min_quote_coverage <= 1
+    ):
+        raise ValueError("invalid covered-call price, position, cash, or quality input")
+    typed = quotes.loc[
+        (quotes["underlying"] == underlying)
+        & (quotes["option_type"].astype(str).str.lower() == "call")
+    ] if "option_type" in quotes.columns else pd.DataFrame()
+    if typed.empty:
+        return {
+            "schema_version": "covered_call_report.v1",
+            "status": "infeasible",
+            "reason_codes": ["NO_EXPLICIT_CALL_QUOTES"],
+            **_quote_evidence(quotes),
+            "equity_curve": pd.DataFrame(),
+            "events": [],
+        }
+    decision_time = typed["available_at"].min()
+    chain = available_chain(quotes, underlying, decision_time, max_age_minutes=24 * 60)
+    selection = select_fixed_covered_call(
+        chain, owned_shares, target_dte, target_moneyness, fee_per_contract,
+    )
+    if selection.status != "feasible":
+        return {
+            "schema_version": "covered_call_report.v1",
+            "status": "infeasible",
+            "reason_codes": [selection.reason_code],
+            **_quote_evidence(quotes),
+            "selection": asdict(selection),
+            "equity_curve": pd.DataFrame(),
+            "events": [],
+        }
+    contract_id = str(selection.contract_id)
+    contract_quotes = typed.loc[typed["contract_id"] == contract_id].sort_values("available_at")
+    metadata = contract_quotes.iloc[0]
+    _validate_physical_contract(metadata, underlying=underlying, option_type="call")
+    multiplier = int(metadata["multiplier"])
+    covered_shares = selection.contracts * multiplier
+    if covered_shares > owned_shares:
+        raise ValueError("covered-call selection exceeds owned shares")
+    expiration = pd.Timestamp(metadata["expiration"])
+    if expiration.tzinfo is None:
+        raise ValueError("covered-call expiration must include timezone")
+    expiration = expiration.tz_convert("UTC")
+    decision_date = pd.Timestamp(decision_time).tz_convert("UTC").tz_localize(None).normalize()
+    observed_assignments = None
+    if assignment_events is not None:
+        observed_assignments = validate_option_lifecycle_events(assignment_events)
+        observed_assignments = observed_assignments.loc[
+            observed_assignments["contract_id"].astype(str) == contract_id
+        ].copy()
+        invalid_time = (
+            (observed_assignments["effective_at"] < pd.Timestamp(decision_time))
+            | (observed_assignments["effective_at"] >= expiration)
+            | (observed_assignments["available_at"] > expiration)
+        )
+        if invalid_time.any():
+            raise ValueError("covered-call assignment is outside the open contract lifetime")
+        if observed_assignments["contracts"].sum() > selection.contracts:
+            raise ValueError("covered-call assignment exceeds open contracts")
+    local_dates = pd.DatetimeIndex(prices.index).tz_localize(None).normalize()
+    prices = prices.loc[local_dates >= decision_date]
+    if prices.empty:
+        raise ValueError("covered-call price history does not reach the decision date")
+
+    cash = float(initial_cash) + selection.total_credit
+    shares = float(owned_shares)
+    active = True
+    remaining_contracts = selection.contracts
+    applied_assignment_ids: set[str] = set()
+    events = [{
+        "event_id": "covered-call-open",
+        "effective_at": pd.Timestamp(decision_time).isoformat(),
+        "kind": "covered_call_sell_to_open",
+        "contract_id": contract_id,
+        "contracts": -selection.contracts,
+        "premium": selection.premium,
+        "fee": selection.contracts * fee_per_contract,
+        "covered_shares": covered_shares,
+    }]
+    rows: list[dict] = []
+    required_marks = 0
+    valid_marks = 0
+    for current_date, spot_value in prices.items():
+        spot = float(spot_value)
+        as_of = _at_end_of_day(pd.Timestamp(current_date))
+        if active and observed_assignments is not None:
+            visible_assignments = observed_assignments.loc[
+                observed_assignments["available_at"] <= as_of
+            ]
+            for assignment in visible_assignments.itertuples(index=False):
+                event_id = str(assignment.event_id)
+                if event_id in applied_assignment_ids:
+                    continue
+                assigned_contracts = int(assignment.contracts)
+                if assigned_contracts > remaining_contracts:
+                    raise ValueError("covered-call assignment exceeds open contracts")
+                assigned_shares = assigned_contracts * multiplier
+                shares -= assigned_shares
+                cash += assigned_shares * float(metadata["strike"])
+                remaining_contracts -= assigned_contracts
+                applied_assignment_ids.add(event_id)
+                events.append({
+                    "event_id": event_id,
+                    "effective_at": pd.Timestamp(assignment.effective_at).isoformat(),
+                    "available_at": pd.Timestamp(assignment.available_at).isoformat(),
+                    "kind": "short_call_early_assignment",
+                    "contract_id": contract_id,
+                    "contracts": assigned_contracts,
+                    "shares_delivered": assigned_shares,
+                    "strike": float(metadata["strike"]),
+                    "source": str(assignment.source),
+                    "source_kind": str(assignment.source_kind),
+                })
+                if remaining_contracts == 0:
+                    active = False
+                    break
+        if active and as_of >= expiration:
+            if spot > float(metadata["strike"]):
+                expiring_shares = remaining_contracts * multiplier
+                shares -= expiring_shares
+                cash += expiring_shares * float(metadata["strike"])
+                events.append({
+                    "event_id": "covered-call-assignment",
+                    "effective_at": expiration.isoformat(),
+                    "kind": "short_call_assignment",
+                    "contract_id": contract_id,
+                    "contracts": remaining_contracts,
+                    "shares_delivered": expiring_shares,
+                    "strike": float(metadata["strike"]),
+                })
+            else:
+                events.append({
+                    "event_id": "covered-call-expiry",
+                    "effective_at": expiration.isoformat(),
+                    "kind": "option_expire_worthless",
+                    "contract_id": contract_id,
+                    "contracts": -remaining_contracts,
+                })
+            active = False
+            remaining_contracts = 0
+        mark = None
+        if active:
+            required_marks += 1
+            visible = available_chain(quotes, underlying, as_of, max_age_minutes=24 * 60)
+            visible = visible.loc[visible["contract_id"] == contract_id]
+            if not visible.empty:
+                latest = visible.iloc[-1]
+                mark = float((latest["bid"] + latest["ask"]) / 2)
+                valid_marks += 1
+        nav = cash + shares * spot if not active else (
+            None if mark is None else cash + shares * spot - remaining_contracts * multiplier * mark
+        )
+        rows.append({
+            "date": pd.Timestamp(current_date), "nav": nav,
+            "mark_quality": "not_required" if not active else "valid" if mark is not None else "unavailable",
+            "settled_cash": cash, "shares": shares,
+            "active_contract": contract_id if active else None,
+        })
+    coverage = valid_marks / required_marks if required_marks else 1.0
+    if active:
+        status = "open_position"
+        reasons = ["PRICE_HISTORY_ENDS_BEFORE_EXPIRY"]
+    elif coverage < min_quote_coverage:
+        status = "quality_failed"
+        reasons = ["OPTION_QUOTE_COVERAGE_BELOW_MINIMUM"]
+    else:
+        status = "complete"
+        reasons = []
+    return {
+        "schema_version": "covered_call_report.v1",
+        "status": status,
+        "reason_codes": reasons,
+        **_quote_evidence(quotes),
+        "claim_boundary": "historical_quote_replay_not_live_execution_or_strategy_recommendation",
+        "assignment_evidence": _lifecycle_evidence(observed_assignments),
+        "lifecycle_assumptions": [
+            "OBSERVED_EARLY_ASSIGNMENT_EVENTS_ONLY" if assignment_events is not None
+            else "NO_EARLY_ASSIGNMENT_DATA",
+            "NO_HEURISTIC_EARLY_ASSIGNMENT_INFERENCE",
+            "PHYSICAL_DELIVERY_AT_EXPIRY",
+        ],
+        "selection": asdict(selection),
+        "quote_quality": {"coverage": coverage, "minimum_required": min_quote_coverage},
+        "equity_curve": pd.DataFrame(rows),
+        "events": events,
     }
 
 
@@ -191,6 +491,7 @@ def run_rolling_protective_put(
                         "fee": active["contracts"] * fee_per_contract,
                     }))
                     new_row = replacements.loc[replacements["contract_id"] == replacement.contract_id].iloc[-1]
+                    _validate_physical_contract(new_row, underlying=underlying, option_type="put")
                     ledger.apply(LedgerEvent(f"rolling-open-{day_number}", as_of.isoformat(), "option_fill", {
                         "contract_id": replacement.contract_id, "quantity": replacement.contracts,
                         "premium": replacement.premium, "multiplier": int(new_row["multiplier"]),
@@ -214,6 +515,7 @@ def run_rolling_protective_put(
             )
             if selection.status == "feasible":
                 selected = chain.loc[chain["contract_id"] == selection.contract_id].iloc[-1]
+                _validate_physical_contract(selected, underlying=underlying, option_type="put")
                 ledger.apply(LedgerEvent(f"rolling-open-{day_number}", as_of.isoformat(), "option_fill", {
                     "contract_id": selection.contract_id, "quantity": selection.contracts,
                     "premium": selection.premium, "multiplier": int(selected["multiplier"]),
@@ -248,7 +550,7 @@ def run_rolling_protective_put(
     return {
         "schema_version": "rolling_protective_put_report.v1",
         "status": "complete" if coverage >= min_quote_coverage else "quality_failed",
-        "quote_mode": "historical_bid_ask",
+        **_quote_evidence(quotes),
         "quote_quality": {
             "coverage": coverage, "minimum_required": min_quote_coverage,
             "unavailable_dates": [value.isoformat() for value in curve.loc[curve["nav"].isna(), "date"]],
@@ -276,6 +578,8 @@ def run_bear_put_spread(
         raise ValueError("invalid bear put spread request")
     metadata = legs.sort_values("available_at").groupby("contract_id").first()
     long_meta, short_meta = metadata.loc[long_contract_id], metadata.loc[short_contract_id]
+    _validate_physical_contract(long_meta, underlying=underlying, option_type="put")
+    _validate_physical_contract(short_meta, underlying=underlying, option_type="put")
     if (
         float(long_meta["strike"]) <= float(short_meta["strike"])
         or pd.Timestamp(long_meta["expiration"]) != pd.Timestamp(short_meta["expiration"])
@@ -286,7 +590,12 @@ def run_bear_put_spread(
     chain = available_chain(quotes, underlying, first_as_of, max_age_minutes=24 * 60)
     visible = chain.set_index("contract_id")
     if long_contract_id not in visible.index or short_contract_id not in visible.index:
-        return {"schema_version": "bear_put_spread_report.v1", "status": "infeasible", "reason_codes": ["NO_VALID_OPENING_QUOTES"]}
+        return {
+            "schema_version": "bear_put_spread_report.v1",
+            "status": "infeasible",
+            "reason_codes": ["NO_VALID_OPENING_QUOTES"],
+            **_quote_evidence(quotes),
+        }
     ledger = EventLedger(initial_cash)
     multiplier = int(long_meta["multiplier"])
     ledger.apply(LedgerEvent("spread-buy-long", first_as_of.isoformat(), "option_fill", {
@@ -357,6 +666,6 @@ def run_bear_put_spread(
         "schema_version": "bear_put_spread_report.v1",
         "status": "lifecycle_failed" if lifecycle_reason else "complete",
         "reason_codes": [] if lifecycle_reason is None else [lifecycle_reason],
-        "quote_mode": "historical_bid_ask", "equity_curve": pd.DataFrame(rows),
+        **_quote_evidence(quotes), "equity_curve": pd.DataFrame(rows),
         "events": [asdict(event) for event in ledger.events],
     }

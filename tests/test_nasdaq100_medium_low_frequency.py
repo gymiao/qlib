@@ -82,6 +82,37 @@ def test_time_segments_have_purge_gap():
     assert test_start - valid_end == 6
 
 
+def test_grouped_prediction_diagnostics_uses_same_date_rank_buckets():
+    dates = pd.to_datetime(["2024-01-02"] * 10 + ["2024-01-03"] * 10)
+    instruments = [f"S{number:02d}" for number in range(10)] * 2
+    index = pd.MultiIndex.from_arrays([dates, instruments], names=["datetime", "instrument"])
+    scores = pd.Series(list(range(10)) * 2, index=index, dtype=float)
+    labels = pd.Series(list(range(10)) * 2, index=index, dtype=float) / 100
+    report = MODULE.grouped_prediction_diagnostics(scores, labels, group_count=5)
+    assert report["dates"] == 2
+    assert set(report["groups"]) == {"1", "2", "3", "4", "5"}
+    assert report["top_minus_bottom"] > 0
+    assert np.allclose(MODULE.daily_ic(scores, labels).dropna(), 1)
+    assert np.allclose(MODULE.rank_ic(scores, labels).dropna(), 1)
+    with np.testing.assert_raises(ValueError):
+        MODULE.grouped_prediction_diagnostics(scores, labels, group_count=1)
+
+
+def test_feature_importance_stability_compares_walk_forward_windows():
+    windows = [
+        {"feature_gain_share": {"momentum": 0.7, "risk": 0.3}},
+        {"feature_gain_share": {"momentum": 0.6, "risk": 0.4}},
+        {"feature_gain_share": {"momentum": 0.8, "risk": 0.2}},
+    ]
+    report = MODULE.feature_importance_stability(windows, top_k=1)
+    assert report["status"] == "evaluated"
+    assert report["window_count"] == 3
+    assert np.isclose(report["mean_pairwise_rank_correlation"], 1)
+    assert np.isclose(report["mean_top_k_jaccard"], 1)
+    assert report["features"][0]["feature"] == "momentum"
+    assert MODULE.feature_importance_stability(windows[:1])["status"] == "insufficient_windows"
+
+
 def test_enhanced_features_and_beta_adjusted_label():
     stocks = synthetic_market(periods=900)
     benchmark = synthetic_market(("QQQ",), periods=900)
@@ -106,6 +137,9 @@ def test_enhanced_features_and_beta_adjusted_label():
     assert set(MODULE.RISK_FEATURE_COLUMNS).issubset(feature_columns)
     assert set(MODULE.MARKET_FEATURE_COLUMNS).issubset(feature_columns)
     assert set(MODULE.MACRO_FEATURE_COLUMNS).issubset(feature_columns)
+    assert set(MODULE.BREADTH_FEATURE_COLUMNS).issubset(feature_columns)
+    for column in MODULE.BREADTH_FEATURE_COLUMNS:
+        assert featured.groupby("datetime")[column].nunique().max() == 1
     assert featured["target"].notna().mean() > 0.98
 
 
@@ -152,9 +186,154 @@ def test_membership_is_half_open_ranked_before_cross_section_and_keeps_prewarm()
     assert before == {"AAA", "BBB"}
     assert after == {"BBB", "CCC"}
     assert featured.loc[(featured["datetime"] == switch) & (featured["instrument"] == "CCC"), "ret_60"].notna().all()
-    without_nonmember = MODULE.build_feature_only_frame(stocks.loc[stocks["instrument"] != "DDD"], 5, membership=membership)
+    without_nonmember = MODULE.build_feature_only_frame(
+        stocks.loc[stocks["instrument"] != "DDD"],
+        5,
+        membership=membership,
+    )
     columns = featured.attrs["feature_columns"]
     pd.testing.assert_frame_equal(
         featured[["datetime", "instrument", *columns]].reset_index(drop=True),
         without_nonmember[["datetime", "instrument", *columns]].reset_index(drop=True),
     )
+
+
+def test_canonical_membership_respects_available_at_and_stable_id_mapping():
+    stocks = synthetic_market(("AAA", "BBB", "CCC"), periods=400)
+    dates = pd.DatetimeIndex(sorted(stocks["datetime"].unique()))
+    switch = dates[300]
+    following = dates[301]
+    switch_open = pd.Timestamp(f"{switch.date()} 09:30:00", tz="America/New_York").tz_convert("UTC")
+    switch_after_close = pd.Timestamp(f"{switch.date()} 17:00:00", tz="America/New_York").tz_convert("UTC")
+    history_start = pd.Timestamp(f"{dates[0].date()} 09:30:00", tz="America/New_York").tz_convert("UTC")
+    membership = pd.DataFrame(
+        {
+            "index_id": ["NDX", "NDX", "NDX"],
+            "instrument_id": ["inst-aaa", "inst-bbb", "inst-ccc"],
+            "announced_at": [history_start, history_start, switch_after_close],
+            "available_at": [history_start, history_start, switch_after_close],
+            "effective_from": [history_start, history_start, switch_open],
+            "effective_to": [switch_open, pd.NaT, pd.NaT],
+        }
+    )
+    instrument_master = pd.DataFrame(
+        {
+            "instrument_id": ["inst-aaa", "inst-bbb", "inst-ccc"],
+            "symbol": ["AAA", "BBB", "CCC"],
+            "symbol_effective_from": [history_start, history_start, history_start],
+            "symbol_effective_to": [pd.NaT, pd.NaT, pd.NaT],
+        }
+    )
+    featured = MODULE.build_feature_only_frame(
+        stocks,
+        5,
+        membership=membership,
+        instrument_master=instrument_master,
+        membership_index_id="NDX",
+    )
+    at_switch = set(featured.loc[featured["datetime"] == switch, "instrument"])
+    next_session = set(featured.loc[featured["datetime"] == following, "instrument"])
+    assert at_switch == {"BBB"}
+    assert next_session == {"BBB", "CCC"}
+    assert featured.loc[
+        (featured["datetime"] == following) & (featured["instrument"] == "CCC"), "ret_60"
+    ].notna().all()
+    normalized = MODULE.normalize_membership(membership, instrument_master, "NDX")
+    assert MODULE.symbols_for_membership(normalized, dates[0], dates[-1]) == ["AAA", "BBB", "CCC"]
+
+
+def test_canonical_fundamentals_join_by_stable_id_after_availability():
+    stocks = synthetic_market(("AAA", "BBB"), periods=400)
+    stocks["instrument_id"] = stocks["instrument"].map({"AAA": "inst-aaa", "BBB": "inst-bbb"})
+    dates = pd.DatetimeIndex(sorted(stocks["datetime"].unique()))
+    release_date = dates[300]
+    available_at = pd.Timestamp(
+        f"{release_date.date()} 17:00:00",
+        tz="America/New_York",
+    ).tz_convert("UTC")
+    fundamentals = pd.DataFrame(
+        {
+            "instrument_id": ["inst-aaa", "inst-bbb"],
+            "observation_at": pd.to_datetime(["2023-12-31T21:00:00Z"] * 2),
+            "published_at": pd.DatetimeIndex([available_at, available_at]),
+            "available_at": pd.DatetimeIndex([available_at, available_at]),
+            "revision_id": ["original", "original"],
+            "source": ["vendor", "vendor"],
+            "fundamental_quality": [0.8, 0.6],
+        }
+    )
+    featured = MODULE.build_feature_only_frame(
+        stocks,
+        5,
+        fundamentals=fundamentals,
+        decision_time="16:00:00",
+    )
+    assert featured["datetime"].min() == dates[301]
+    assert "fundamental_quality" in featured.attrs["feature_columns"]
+    assert set(featured.loc[featured["datetime"] == dates[301], "instrument_id"]) == {
+        "inst-aaa",
+        "inst-bbb",
+    }
+
+
+def test_classification_vintages_drive_industry_and_market_cap_ranks_after_availability():
+    instruments = ("AAA", "BBB", "CCC", "DDD")
+    stocks = synthetic_market(instruments, periods=400)
+    stable_ids = {symbol: f"inst-{symbol.lower()}" for symbol in instruments}
+    stocks["instrument_id"] = stocks["instrument"].map(stable_ids)
+    dates = pd.DatetimeIndex(sorted(stocks["datetime"].unique()))
+    release = dates[300]
+    available = pd.Timestamp(
+        f"{release.date()} 17:00:00", tz="America/New_York"
+    ).tz_convert("UTC")
+    classifications = pd.DataFrame({
+        "instrument_id": list(stable_ids.values()),
+        "observation_at": pd.to_datetime(["2023-12-31T21:00:00Z"] * 4),
+        "published_at": pd.DatetimeIndex([available] * 4),
+        "available_at": pd.DatetimeIndex([available] * 4),
+        "revision_id": ["original"] * 4,
+        "sector": ["Technology", "Technology", "Health", "Health"],
+        "market_cap": [400, 300, 200, 100],
+        "source": ["vendor"] * 4,
+        "source_kind": ["historical_observed"] * 4,
+    })
+    featured = MODULE.build_feature_only_frame(
+        stocks,
+        5,
+        classifications=classifications,
+        decision_time="16:00:00",
+    )
+    assert featured["datetime"].min() == dates[301]
+    assert set(MODULE.CLASSIFICATION_FEATURE_COLUMNS).issubset(featured.attrs["feature_columns"])
+    assert featured.loc[featured["datetime"] == dates[301], "sector"].notna().all()
+
+
+def test_backtest_does_not_replace_selected_name_with_missing_future_label():
+    signal_date = pd.Timestamp("2024-01-02")
+    featured = pd.DataFrame(
+        {
+            "datetime": [signal_date] * 3,
+            "instrument": ["AAA", "BBB", "CCC"],
+            "forward_return": [np.nan, 0.02, -0.03],
+        }
+    )
+    index = pd.MultiIndex.from_frame(featured[["datetime", "instrument"]])
+    predictions = pd.Series([3.0, 2.0, -1.0], index=index)
+    benchmark = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Open": [100, 101, 102],
+        }
+    )
+    backtest, holdings = MODULE.run_weekly_backtest(
+        featured,
+        predictions,
+        benchmark,
+        top_k=1,
+        horizon=1,
+        cost_bps=10,
+    )
+    assert backtest.loc[0, "status"] == "unavailable_missing_realization"
+    assert pd.isna(backtest.loc[0, "net_return"])
+    selected_longs = holdings.loc[holdings["side"] == "long", "instrument"].tolist()
+    assert selected_longs == ["AAA"]

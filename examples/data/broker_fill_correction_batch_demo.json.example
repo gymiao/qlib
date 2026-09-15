@@ -1,0 +1,23 @@
+{
+  "account_id": "demo-account-redacted",
+  "available_at": "2026-09-14T20:19:30Z",
+  "batch_id": "d8764e992a6dc492790f05cb",
+  "broker_id": "broker-neutral-demo",
+  "captured_at": "2026-09-14T20:19:00Z",
+  "corrections": [
+    {
+      "available_at": "2026-09-14T20:18:30Z",
+      "broker_correction_id": "demo-correction-1",
+      "broker_execution_id": "demo-execution-1",
+      "effective_at": "2026-09-14T20:18:00Z",
+      "reason_code": "BROKER_BUSTED_EXECUTION"
+    }
+  ],
+  "package_id": "a91aec019c5ce5b2ea4a83fe",
+  "schema_version": "broker_fill_correction_batch.v1",
+  "source": {
+    "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "export_id": "demo-fill-correction-export-1",
+    "source_kind": "synthetic"
+  }
+}

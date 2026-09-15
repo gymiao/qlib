@@ -1,0 +1,24 @@
+{
+  "account_id": "demo-account-redacted",
+  "activities": [
+    {
+      "activity_type": "trade_receivable_settlement",
+      "amount_decimal": "801",
+      "available_at": "2026-09-15T20:15:00Z",
+      "broker_activity_id": "demo-settlement-1",
+      "currency": "USD",
+      "effective_at": "2026-09-15T20:12:00Z",
+      "reference_id": "demo-execution-1"
+    }
+  ],
+  "available_at": "2026-09-15T20:17:00Z",
+  "batch_id": "d99cdf85c4f99328548a98ee",
+  "broker_id": "broker-neutral-demo",
+  "captured_at": "2026-09-15T20:16:00Z",
+  "schema_version": "broker_activity_batch.v2",
+  "source": {
+    "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "export_id": "demo-activity-export-1",
+    "source_kind": "synthetic"
+  }
+}

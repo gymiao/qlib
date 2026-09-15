@@ -1,0 +1,2 @@
+contract_id,quote_ts,available_at,bid,ask,underlying_price,source,source_kind
+DEMO-AAA-202403-P95,2024-01-02T20:00:00Z,2024-01-02T20:01:00Z,2.8,3.0,100,synthetic_demo,synthetic

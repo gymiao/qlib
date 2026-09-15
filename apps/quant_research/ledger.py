@@ -138,8 +138,46 @@ class EventLedger:
             self._consume_reservation(payload, payable)
             self.state.trade_payable += payable
         else:
-            self.state.trade_receivable += -quantity * price - fee
+            proceeds = -quantity * price - fee
+            if proceeds < 0:
+                raise ValueError("equity sale fee exceeds proceeds")
+            self.state.trade_receivable += proceeds
         remaining = current + quantity
+        if remaining:
+            self.state.positions[instrument] = remaining
+            self.state.position_multipliers[instrument] = Decimal("1")
+        else:
+            self.state.positions.pop(instrument, None)
+            self.state.position_multipliers.pop(instrument, None)
+
+    def _apply_equity_fill_reversal(self, payload: dict[str, Any]) -> None:
+        """Reverse one exact, still-unsettled equity fill without editing history."""
+        instrument = str(payload["instrument"])
+        quantity = money(payload["quantity"])
+        price = money(payload["price"])
+        fee = money(payload.get("fee", 0))
+        if (
+            not quantity.is_finite()
+            or not quantity
+            or not price.is_finite()
+            or price <= 0
+            or not fee.is_finite()
+            or fee < 0
+        ):
+            raise ValueError("invalid equity fill reversal")
+        current = self.state.positions.get(instrument, ZERO)
+        if quantity > 0:
+            payable = quantity * price + fee
+            if current < quantity or self.state.trade_payable < payable:
+                raise ValueError("cannot reverse a settled or unavailable equity purchase")
+            remaining = current - quantity
+            self.state.trade_payable -= payable
+        else:
+            proceeds = -quantity * price - fee
+            if proceeds < 0 or self.state.trade_receivable < proceeds:
+                raise ValueError("cannot reverse a settled or unavailable equity sale")
+            remaining = current - quantity
+            self.state.trade_receivable -= proceeds
         if remaining:
             self.state.positions[instrument] = remaining
             self.state.position_multipliers[instrument] = Decimal("1")
@@ -155,6 +193,67 @@ class EventLedger:
             raise ValueError("invalid or duplicate imported position")
         self.state.positions[instrument] = quantity
         self.state.position_multipliers[instrument] = multiplier
+
+    def _apply_account_snapshot_import(self, payload: dict[str, Any]) -> None:
+        if self.events or self.initial_cash != ZERO or self.state != LedgerState(ZERO):
+            raise ValueError("account snapshot can only initialize a pristine zero-cash ledger")
+        balance_fields = (
+            "settled_cash",
+            "trade_receivable",
+            "dividend_receivable",
+            "trade_payable",
+            "other_payable",
+        )
+        balances = {field: money(payload.get(field, 0)) for field in balance_fields}
+        if any(not value.is_finite() or value < 0 for value in balances.values()):
+            raise ValueError("imported account balances must be finite and non-negative")
+        positions: dict[str, Decimal] = {}
+        multipliers: dict[str, Decimal] = {}
+        for row in payload.get("positions", ()):
+            instrument = str(row["instrument_id"])
+            quantity = money(row["quantity"])
+            multiplier = money(row.get("multiplier", 1))
+            if (
+                not instrument
+                or instrument in positions
+                or not quantity.is_finite()
+                or quantity <= 0
+                or not multiplier.is_finite()
+                or multiplier <= 0
+            ):
+                raise ValueError("invalid imported account position")
+            positions[instrument] = quantity
+            multipliers[instrument] = multiplier
+        for field, value in balances.items():
+            setattr(self.state, field, value)
+        self.state.positions = positions
+        self.state.position_multipliers = multipliers
+
+    def _apply_broker_order_status(self, payload: dict[str, Any]) -> None:
+        """Record non-financial broker order evidence in the immutable event stream."""
+        required = {
+            "order_package_id",
+            "client_order_id",
+            "broker_order_id",
+            "broker_status_id",
+            "status",
+            "reason_code",
+        }
+        if (
+            set(payload) != required
+            or not all(
+                isinstance(payload[field], str) and payload[field]
+                for field in (
+                    "order_package_id",
+                    "client_order_id",
+                    "broker_order_id",
+                    "broker_status_id",
+                )
+            )
+            or payload["status"] not in {"accepted", "rejected", "cancelled", "expired"}
+            or (payload["reason_code"] is not None and not isinstance(payload["reason_code"], str))
+        ):
+            raise ValueError("invalid broker order status event")
 
     def _apply_option_fill(self, payload: dict[str, Any]) -> None:
         contract_id = str(payload["contract_id"])

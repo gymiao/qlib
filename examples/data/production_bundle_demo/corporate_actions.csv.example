@@ -1,0 +1,2 @@
+action_id,instrument_id,action_type,announced_at,available_at,effective_at,settlement_rule,source,source_kind
+delist-demo-bbb,demo-bbb,delisting,2024-05-20T20:00:00Z,2024-05-20T20:05:00Z,2024-06-03T20:00:00Z,cash_at_final_mark,synthetic_demo,synthetic

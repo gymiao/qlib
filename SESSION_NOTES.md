@@ -62,3 +62,51 @@
 - 环境现状与旧文档有漂移：`qlib-aapl` 环境已不存在，当前可用环境为 `/home/mgy/miniconda3/envs/qlib`，其中 Qlib 为 0.9.8.dev31、LightGBM 为 4.7.0；该环境缺少 pytest。
 - 验证结果：4 个 Nasdaq 核心测试函数直接调用通过，Dashboard 数据导出 unittest 通过，TypeScript 检查及 Next.js 生产构建通过。
 - Git 工作树显示大量修改，其中绝大多数是 CRLF/LF 行尾差异；忽略行尾后只有 9 个 tracked 文件存在实质内容变化，Nasdaq 主流程、测试、部分文档和 API 等关键成果仍为未跟踪文件，后续需谨慎整理并纳入版本控制。
+
+## 2026-09-15 统一研究系统优化收口
+
+- 创建独立项目环境 `/home/mgy/miniconda3/envs/qlib-project`，从既有 `qlib` 环境使用
+  `conda --no-plugins create --clone ... --offline` 完成本地克隆；原环境未修改。环境包含
+  Python 3.11.15、Node.js 22.23.1 和 npm 10.9.8，Qlib 正确指向当前仓库源码。
+- 使用新环境完成烟雾验证：NumPy、Pandas、LightGBM、CVXPY 与 Qlib 均可导入，
+  `apps/quant_research` 的 165 项 unittest 全部通过。
+- 生产数据入口增加 readiness 审计、stable instrument ID、point-in-time 成分区间、canonical
+  行情和 vintage 特征；不满足数据门时显式降级，禁止把快照股票池包装为无偏历史回测。
+- 前向证据仓冻结数据 manifest、特征批次和信号，标签只能在持有期结束且可用后追加；当前
+  信号导出会重新验 hash 和有效期，不回退到历史信号。
+- 账户状态升级为 `paper_simulator.v3`：revision、内容 hash、事件链、跨进程锁、CAS、原子
+  保存和历史归档共同保护并发及恢复。所有账户读写 CLI 已迁移到同一事务入口。
+- 券商集成保持只读/人工边界：账户快照、订单包、订单状态、成交和现金活动均为内容寻址
+  合约；订单包是 `manual_export_only`，代码恒报告系统提交订单数为零。
+- 新写券商数值合约默认使用 canonical Decimal v2，既有 v1 证据仍可回放；Dashboard 账户
+  与信号发布也避免二进制浮点改变跨语言 hash。
+- 策略比较升级为 `baseline_comparison.v2`：Nasdaq 等权覆盖完整股票池，和动量/模型共享
+  下一开盘执行口径，并统一检查 0/10/20/30 bps、市场状态及至少三个不重叠窗口。
+- 当前本地工程不能替代外部证据。下一阶段需要权威 PIT 成分、真实行情/基本面、合格期权
+  报价、真实券商导出及自然成熟的前向标签；在此之前保持 research/paper 定位。
+- Git 工作树仍包含用户既有的广泛行尾和未跟踪噪声。本轮不替用户清理或提交；后续提交时
+  必须只暂存审核过的研究系统路径。
+- 同日追加 Covered Call、Collar 和趋势/波动率动态现金对冲。备兑 Call 必须有足额现股，
+  卖出现股不能破坏覆盖，价内到期按执行价交割；情景回测使用理论报价并明确不是历史业绩。
+- 新增未结算成交 correction/reversal：精确引用原 execution、追加事件、重复幂等、冲正后
+  可由新 execution 补成交；若相关聚合现金桶已发生结算则拒绝自动冲正。
+- 最终本地验收更新为应用 165 项、Nasdaq 13 项、Dashboard Python 5 项，TypeScript typecheck、
+  Next.js production build、compileall、workflow YAML 和限定 diff 检查均通过。
+- 后续又增加历史报价 Covered Call、canonical 期权合约/报价 join、来源能力降级，以及
+  SPY/QQQ 联合因子现金对冲计划；合成或无来源 bid/ask 不再自动标成历史期权回放。
+- Covered Call 新增观察型提前指派事件适配；无事件输入保持明确缺证据状态，不用启发式
+  模型冒充历史生命周期。示例位于 `examples/data/option_lifecycle_events_demo.csv.example`。
+- Nasdaq 预测输出补齐 Pearson IC、Rank IC 与同日五分组成熟标签诊断，且保留旧
+  `rank_ic.csv` 兼容文件。
+- walk-forward 窗口现在冻结归一化特征 gain，并输出跨窗口排名相关性与 Top-K 重合度；
+  单窗口保持证据不足，不自动删除特征。
+- Nasdaq 特征新增仅由当日 PIT 合格成员计算的市场宽度、正收益比例和横截面离散度；
+  行业/市值排名继续等待带可用时点的真实分类数据。
+- ETF 情景比较升级为 v3，新增滞后趋势/波动率触发的动态 Protective Put，并为 Put/Call
+  理论价格加入冻结的波动率斜率；仍严格标记为 Black-Scholes scenario。
+- v3 同时加入 Bear Put Spread：长腿 ask、短腿 bid，平仓反向计价并逐腿收取佣金，现共
+  九种可比策略。
+- 分类 vintage 新增独立生产审计与主流程接入，按可用时点产生行业内收益排名、行业相对
+  收益和市值排名；真实供应商分类仍属外部输入。
+- 新增普通/反向 ETF 与期货的观察收益对冲诊断，单列跟踪误差、基差、成本和保证金；
+  不生成订单，真实换月、再平衡与追保仍等待外部数据。

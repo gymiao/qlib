@@ -1,0 +1,28 @@
+{
+  "account_id": "demo-account-redacted",
+  "available_at": "2026-09-14T20:17:00Z",
+  "batch_id": "41fc8d197ffb54164960ed2f",
+  "broker_id": "broker-neutral-demo",
+  "captured_at": "2026-09-14T20:16:00Z",
+  "fills": [
+    {
+      "available_at": "2026-09-14T20:15:00Z",
+      "broker_execution_id": "demo-execution-1",
+      "client_order_id": "98987e79e5e50c8fba5b7c3d",
+      "executed_at": "2026-09-14T20:12:00Z",
+      "fee_decimal": "1",
+      "instrument_id": "inst-qqq",
+      "price_decimal": "401",
+      "quantity_decimal": "2",
+      "side": "sell",
+      "symbol": "QQQ"
+    }
+  ],
+  "package_id": "a91aec019c5ce5b2ea4a83fe",
+  "schema_version": "broker_fill_batch.v2",
+  "source": {
+    "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "export_id": "demo-fill-export-1",
+    "source_kind": "synthetic"
+  }
+}

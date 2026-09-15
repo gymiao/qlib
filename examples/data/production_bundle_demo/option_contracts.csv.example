@@ -1,0 +1,2 @@
+contract_id,underlying_id,listed_at,expiration,last_trade_at,strike,option_type,multiplier,deliverable_instrument_id,exercise_style,settlement_type,source,source_kind
+DEMO-AAA-202403-P95,demo-aaa,2023-12-01T14:30:00Z,2024-03-15T21:00:00Z,2024-03-15T20:00:00Z,95,put,100,demo-aaa,american,physical,synthetic_demo,synthetic

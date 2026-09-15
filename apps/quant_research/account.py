@@ -51,6 +51,8 @@ class Account:
         if self.cash + cash_change - self.cash_secured_put_reserve() < -1e-8:
             raise ValueError("insufficient cash")
         position = self.equities.setdefault(symbol, EquityPosition(symbol, 0.0))
+        if position.shares + shares + 1e-8 < self.covered_call_share_requirement(symbol):
+            raise ValueError("equity sale would uncover a short call")
         position.shares += shares
         self.cash += cash_change
         self.events.append(AccountEvent(event_date, "equity_trade", symbol, shares, cash_change, fee))
@@ -68,11 +70,21 @@ class Account:
         fee = abs(contracts) * fee_per_contract
         cash_change = -contracts * contract.multiplier * premium - fee
         new_contracts = self.options.get(contract.contract_id, OptionPosition(contract, 0)).contracts + contracts
-        if new_contracts < 0:
+        if new_contracts < 0 and contract.option_type == "put" and contract.settlement == "physical":
             reserve = abs(new_contracts) * contract.strike * contract.multiplier
             other_reserve = self.cash_secured_put_reserve(exclude=contract.contract_id)
             if self.cash + cash_change + 1e-8 < reserve + other_reserve:
                 raise ValueError("insufficient cash for cash-secured put")
+        elif new_contracts < 0 and contract.option_type == "call" and contract.settlement == "physical":
+            required = (
+                self.covered_call_share_requirement(contract.underlying, exclude=contract.contract_id)
+                + abs(new_contracts) * contract.multiplier
+            )
+            shares = self.equities.get(contract.underlying, EquityPosition(contract.underlying, 0.0)).shares
+            if shares + 1e-8 < required:
+                raise ValueError("insufficient shares for covered call")
+        elif new_contracts < 0:
+            raise ValueError("unsupported naked or cash-settled short option")
         elif self.cash + cash_change - self.cash_secured_put_reserve() < -1e-8:
             raise ValueError("insufficient cash")
         self.cash += cash_change
@@ -89,6 +101,17 @@ class Account:
             if contract_id != exclude
             and position.contracts < 0
             and position.contract.option_type == "put"
+            and position.contract.settlement == "physical"
+        )
+
+    def covered_call_share_requirement(self, underlying: str, exclude: str | None = None) -> float:
+        return sum(
+            abs(position.contracts) * position.contract.multiplier
+            for contract_id, position in self.options.items()
+            if contract_id != exclude
+            and position.contracts < 0
+            and position.contract.underlying == underlying
+            and position.contract.option_type == "call"
             and position.contract.settlement == "physical"
         )
 
@@ -112,14 +135,20 @@ class Account:
             if contract.settlement == "cash":
                 cash_change = position.contracts * contract.multiplier * intrinsic
                 self.cash += cash_change
-            elif intrinsic > 0 and contract.option_type == "put":
-                shares = -position.contracts * contract.multiplier
+            elif intrinsic > 0:
+                shares = (
+                    -position.contracts * contract.multiplier
+                    if contract.option_type == "put"
+                    else position.contracts * contract.multiplier
+                )
                 current = self.equities.get(contract.underlying, EquityPosition(contract.underlying, 0.0)).shares
                 if current + shares < -1e-8 and not allow_short_stock:
-                    raise ValueError("physical put exercise would create an unsupported short stock position")
+                    raise ValueError("physical option settlement would create an unsupported short stock position")
+                cash_change = -shares * contract.strike
+                if shares > 0 and self.cash + cash_change - self.cash_secured_put_reserve(exclude=contract_id) < -1e-8:
+                    raise ValueError("insufficient cash for physical option exercise")
                 equity = self.equities.setdefault(contract.underlying, EquityPosition(contract.underlying, 0.0))
                 equity.shares += shares
-                cash_change = -shares * contract.strike
                 self.cash += cash_change
             else:
                 cash_change = 0.0

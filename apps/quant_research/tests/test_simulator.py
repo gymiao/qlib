@@ -1,11 +1,28 @@
 from datetime import datetime, timezone
+import json
+import multiprocessing
 from pathlib import Path
 import tempfile
 import unittest
 
-from apps.quant_research.contracts import OrderPlan
-from apps.quant_research.ledger import EventLedger
-from apps.quant_research.simulator import PaperSimulator
+from apps.quant_research.contracts import OrderPlan, canonical_hash
+from apps.quant_research.ledger import EventLedger, LedgerEvent
+from apps.quant_research.simulator import (
+    ConcurrentStateError,
+    PaperSimulator,
+    SimulatorStateStore,
+)
+
+
+def _concurrent_deposit(state_path, event_id):
+    store = SimulatorStateStore(state_path)
+
+    def operation(simulator):
+        simulator.ledger.apply(
+            LedgerEvent(event_id, "2024-01-03T20:00:00Z", "external_cash", {"amount": "1"})
+        )
+
+    store.transact(operation)
 
 
 class PaperSimulatorTest(unittest.TestCase):
@@ -151,6 +168,106 @@ class PaperSimulatorTest(unittest.TestCase):
         plan = self.plan(ledger, [{"instrument": "QQQ", "quantity": 1, "max_price": float("nan")}])
         with self.assertRaisesRegex(ValueError, "max_price"):
             simulator.execute(plan, datetime(2024, 1, 3, 15, tzinfo=timezone.utc), {"QQQ": 100})
+
+    def test_v3_state_detects_content_and_event_chain_tampering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "simulator.json"
+            simulator = PaperSimulator(EventLedger(100))
+            simulator.ledger.apply(
+                LedgerEvent("deposit", "2024-01-03T20:00:00Z", "external_cash", {"amount": "1"})
+            )
+            simulator.save(state)
+            payload = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], "paper_simulator.v3")
+            self.assertEqual(payload["state_revision"], 1)
+            payload["events"][0]["payload"]["amount"] = "2"
+            state.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "content hash"):
+                PaperSimulator.load(state)
+            payload["content_sha256"] = canonical_hash(
+                {key: value for key, value in payload.items() if key != "content_sha256"}
+            )
+            state.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "event chain"):
+                PaperSimulator.load(state)
+
+    def test_stale_writer_is_rejected_and_previous_version_is_archived(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "simulator.json"
+            PaperSimulator(EventLedger(100)).save(state)
+            first = PaperSimulator.load(state)
+            stale = PaperSimulator.load(state)
+            first.ledger.apply(
+                LedgerEvent("first", "2024-01-03T20:00:00Z", "external_cash", {"amount": "1"})
+            )
+            previous_hash = first.content_sha256
+            first.save(state)
+            archived = state.with_name(f".{state.name}.history") / f"{previous_hash}.json"
+            self.assertTrue(archived.is_file())
+            stale.ledger.apply(
+                LedgerEvent("stale", "2024-01-03T20:01:00Z", "external_cash", {"amount": "1"})
+            )
+            with self.assertRaisesRegex(ConcurrentStateError, "changed"):
+                stale.save(state)
+            restored = PaperSimulator.load(state)
+            self.assertEqual(restored.ledger.state.settled_cash, 101)
+            self.assertEqual(restored.state_revision, 2)
+
+    def test_transaction_failure_does_not_change_persisted_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "simulator.json"
+            store = SimulatorStateStore(state)
+            original = store.create(PaperSimulator(EventLedger(100)))
+            original_hash = original.content_sha256
+
+            def fail(simulator):
+                simulator.ledger.apply(
+                    LedgerEvent("never", "2024-01-03T20:00:00Z", "external_cash", {"amount": "1"})
+                )
+                raise RuntimeError("injected failure")
+
+            with self.assertRaisesRegex(RuntimeError, "injected"):
+                store.transact(fail)
+            restored = store.load()
+            self.assertEqual(restored.content_sha256, original_hash)
+            self.assertEqual(restored.ledger.state.settled_cash, 100)
+
+    def test_cross_process_transactions_do_not_lose_updates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "simulator.json"
+            SimulatorStateStore(state).create(PaperSimulator(EventLedger(100)))
+            context = multiprocessing.get_context("fork")
+            workers = [
+                context.Process(target=_concurrent_deposit, args=(str(state), f"deposit-{index}"))
+                for index in range(4)
+            ]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(10)
+                self.assertEqual(worker.exitcode, 0)
+            restored = SimulatorStateStore(state).load()
+            self.assertEqual(restored.ledger.state.settled_cash, 104)
+            self.assertEqual(restored.state_revision, 5)
+
+    def test_v2_state_is_readable_and_upgrades_on_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "simulator.json"
+            legacy = {
+                "schema_version": "paper_simulator.v2",
+                "initial_cash": "100",
+                "fee_rate": "0.001",
+                "events": [],
+                "results": {},
+                "progress": {},
+            }
+            state.write_text(json.dumps(legacy), encoding="utf-8")
+            simulator = PaperSimulator.load(state)
+            self.assertEqual(simulator.state_revision, 0)
+            simulator.save(state)
+            upgraded = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(upgraded["schema_version"], "paper_simulator.v3")
+            self.assertEqual(upgraded["state_revision"], 1)
 
 
 if __name__ == "__main__":

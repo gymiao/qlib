@@ -67,11 +67,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", default="2010-01-01")
     parser.add_argument("--output-dir", default=".artifacts/aapl_prediction")
+    parser.add_argument("--max-depth", type=int, default=4)
+    parser.add_argument("--input-csv", type=Path, help="Optional cached daily OHLCV CSV")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    raw = yf.download("AAPL", start=args.start, auto_adjust=True, progress=False, multi_level_index=False)
+    if args.input_csv:
+        raw = pd.read_csv(args.input_csv, index_col=0, parse_dates=True)
+    else:
+        raw = yf.download("AAPL", start=args.start, auto_adjust=True, progress=False, multi_level_index=False)
     if raw.empty:
         raise RuntimeError("Yahoo Finance returned no AAPL data")
     raw.index = pd.to_datetime(raw.index).tz_localize(None)
@@ -113,7 +118,7 @@ def main() -> None:
     model = LGBModel(
         loss="mse",
         learning_rate=0.02,
-        max_depth=4,
+        max_depth=args.max_depth,
         num_leaves=15,
         feature_fraction=0.8,
         bagging_fraction=0.8,
@@ -131,6 +136,18 @@ def main() -> None:
     predicted = model.predict(dataset, "test")
     actual = dataset.prepare("test", col_set="label").iloc[:, 0]
     residual = actual - predicted
+
+    segment_metrics = {}
+    for segment in ("train", "valid", "test"):
+        segment_predicted = model.predict(dataset, segment)
+        segment_actual = dataset.prepare(segment, col_set="label").iloc[:, 0]
+        segment_residual = segment_actual - segment_predicted
+        segment_metrics[segment] = {
+            "observations": int(len(segment_actual)),
+            "mae_return": float(np.mean(np.abs(segment_residual))),
+            "correlation": float(segment_predicted.corr(segment_actual)),
+        }
+
     latest_return = float(model.predict(dataset, "latest").iloc[0])
     latest_close = float(raw.loc[latest_date, "Close"])
     predicted_close = latest_close * (1 + latest_return)
@@ -143,6 +160,7 @@ def main() -> None:
         "last_observation": latest_date.date().isoformat(),
         "last_adjusted_close": latest_close,
         "forecast_horizon": "next trading-day adjusted close",
+        "model": {"max_depth": args.max_depth},
         "predicted_return": latest_return,
         "predicted_close": predicted_close,
         "empirical_90pct_interval": [latest_close * (1 + lower_return), latest_close * (1 + upper_return)],
@@ -155,6 +173,7 @@ def main() -> None:
             "correlation": float(predicted.corr(actual)),
             "zero_return_baseline_mae": float(np.mean(np.abs(actual))),
         },
+        "segment_metrics": segment_metrics,
     }
     (output_dir / "prediction.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from .reporting import validate_published_run
-from .simulator import PaperSimulator
+from .simulator import SimulatorStateStore
 
 
 def inspect_run(path: Path | str) -> dict:
@@ -26,7 +26,7 @@ def inspect_run(path: Path | str) -> dict:
 
 
 def inspect_simulator(path: Path | str) -> dict:
-    monitor = PaperSimulator.load(path).monitor()
+    monitor = SimulatorStateStore(path).load().monitor()
     return {"kind": "paper_simulator", "status": "valid", **monitor}
 
 

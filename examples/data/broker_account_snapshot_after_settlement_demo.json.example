@@ -1,0 +1,31 @@
+{
+  "schema_version": "broker_account_snapshot.v1",
+  "account_id": "demo-account-redacted",
+  "broker_id": "broker-neutral-demo",
+  "account_type": "cash",
+  "base_currency": "USD",
+  "captured_at": "2026-09-15T20:18:00Z",
+  "available_at": "2026-09-15T20:19:00Z",
+  "balances": {
+    "settled_cash": 10801.0,
+    "trade_receivable": 0.0,
+    "dividend_receivable": 0.0,
+    "trade_payable": 0.0,
+    "other_payable": 0.0
+  },
+  "positions": [
+    {
+      "instrument_id": "inst-qqq",
+      "symbol": "QQQ",
+      "asset_type": "etf",
+      "quantity": 8.0,
+      "multiplier": 1.0
+    }
+  ],
+  "source": {
+    "source_kind": "synthetic",
+    "export_id": "demo-export-after-settlement",
+    "content_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "snapshot_id": "8f8da81cbae893126e260d7b"
+}

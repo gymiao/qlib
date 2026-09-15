@@ -1,0 +1,2 @@
+event_id,contract_id,event_type,effective_at,available_at,contracts,source,source_kind
+assignment-20240104-1,SPY-C105,early_assignment,2024-01-04T13:00:00Z,2024-01-04T13:05:00Z,1,synthetic_demo,scenario_only

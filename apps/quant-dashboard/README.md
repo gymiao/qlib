@@ -30,6 +30,27 @@ python scripts/export_dashboard_data.py \
 
 因此，训练环境和前端部署环境可以完全分离。只要其他策略输出相同 JSON 结构，也可以直接复用界面。
 
+## 只读当前状态接口
+
+`GET /api/v2/signals/latest` 与 `GET /api/v2/accounts/current` 只读取 Python 端原子发布的
+内容寻址 JSON，不调用训练代码，也没有下单、撤单或账户写入口。生成文件：
+
+```bash
+cd ../..
+python -m apps.quant_research.manage_forward_archive export-current \
+  --archive-root .artifacts/forward_signals \
+  --as-of <timezone-aware-current-time> \
+  --output apps/quant-dashboard/public/data/signal-current.json
+python -m apps.quant_research.operations_snapshot \
+  --simulator-state .artifacts/paper-simulator.json \
+  --generated-at <timezone-aware-current-time> \
+  --output apps/quant-dashboard/public/data/account-current.json
+```
+
+两个路由都会重算 SHA-256；当前信号还会在请求时检查有效期。缺少发布文件、文件损坏或
+信号过期均返回明确不可用状态，不回退历史研究名单。生产部署可分别设置固定路径
+`QLIB_CURRENT_SIGNAL_PATH` 和 `QLIB_ACCOUNT_SNAPSHOT_PATH`。
+
 `public/data/models.json` 是模型清单，页面根据它生成模型选择器。每个可用模型指向一个独立的
 dashboard JSON；新增模型时：
 
@@ -43,11 +64,16 @@ dashboard JSON；新增模型时：
 ## 本地运行
 
 ```bash
+cd /mnt/c/quant/project/qlib
+source /home/mgy/miniconda3/etc/profile.d/conda.sh
+conda activate qlib-project
+cd apps/quant-dashboard
 npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`。
+打开 `http://localhost:3000`。项目环境已验证 Node.js 22.23.1 和 npm 10.9.8；必须先激活
+`qlib-project`，否则直接执行 npm 脚本可能找不到环境中的 `node`。
 
 ## 验证
 

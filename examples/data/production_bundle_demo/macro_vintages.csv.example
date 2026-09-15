@@ -1,0 +1,3 @@
+series_id,feature_name,observation_at,published_at,available_at,revision_id,value,unit,source,source_kind
+DGS3MO,rf_3m,2024-01-02T21:00:00Z,2024-01-03T20:00:00Z,2024-01-03T20:05:00Z,original,0.052,decimal_rate,synthetic_demo,synthetic
+VIXCLS,vix,2024-01-02T21:00:00Z,2024-01-03T20:00:00Z,2024-01-03T20:05:00Z,original,13.2,index_points,synthetic_demo,synthetic

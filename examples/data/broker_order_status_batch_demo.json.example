@@ -1,0 +1,25 @@
+{
+  "account_id": "demo-account-redacted",
+  "available_at": "2026-09-14T20:11:45Z",
+  "batch_id": "6f894395b313d5c589586ef3",
+  "broker_id": "broker-neutral-demo",
+  "captured_at": "2026-09-14T20:11:30Z",
+  "package_id": "a91aec019c5ce5b2ea4a83fe",
+  "schema_version": "broker_order_status_batch.v1",
+  "source": {
+    "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "export_id": "demo-order-status-export-1",
+    "source_kind": "synthetic"
+  },
+  "statuses": [
+    {
+      "available_at": "2026-09-14T20:11:15Z",
+      "broker_order_id": "demo-broker-order-1",
+      "broker_status_id": "demo-status-accepted-1",
+      "client_order_id": "98987e79e5e50c8fba5b7c3d",
+      "effective_at": "2026-09-14T20:11:00Z",
+      "reason_code": null,
+      "status": "accepted"
+    }
+  ]
+}

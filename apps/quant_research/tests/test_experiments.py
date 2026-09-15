@@ -30,10 +30,21 @@ class BaselineExperimentTest(unittest.TestCase):
             rebalance_every=5, max_weight=0.45,
         )
         self.assertEqual(report["status"], "complete")
+        self.assertEqual(report["schema_version"], "baseline_comparison.v2")
         self.assertEqual(set(report["metrics"]["strategy"]), {"equal_weight", "momentum", "model"})
         self.assertEqual(len(report["metrics"]), 6)
+        self.assertEqual(len(report["cost_sensitivity"]), 24)
         self.assertEqual(set(report["runs"]["early"]), {"equal_weight", "momentum", "model"})
         self.assertGreater(report["window_evidence"]["early"]["common_signal_dates"], 0)
+        self.assertEqual(report["model_evidence"]["status"], "insufficient_evidence")
+        self.assertIn("INSUFFICIENT_INDEPENDENT_WINDOWS", report["model_evidence"]["reason_codes"])
+        self.assertIn("OVERLAPPING_EVIDENCE_WINDOWS", report["model_evidence"]["reason_codes"])
+        equal_holdings = report["runs"]["early"]["equal_weight"]["holdings"]
+        self.assertEqual(equal_holdings.groupby("signal_date")["instrument"].nunique().min(), 4)
+
+        model_costs = report["cost_sensitivity"].query("window == 'early' and strategy == 'model'")
+        returns = model_costs.sort_values("cost_bps")["total_return"].to_numpy()
+        self.assertTrue(np.all(np.diff(returns) <= 1e-12))
 
     def test_future_prices_do_not_change_earlier_momentum_orders(self):
         dates, prices, scores, benchmark = self.fixture()

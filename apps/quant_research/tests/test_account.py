@@ -29,6 +29,24 @@ class AccountTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cash-secured"):
             account.trade_option(date(2024, 1, 2), second, -1, 1)
 
+    def test_covered_call_requires_shares_and_assigns_at_expiry(self):
+        account = Account(20_000)
+        account.trade_equity(date(2024, 1, 2), "SPY", 100, 100)
+        call = OptionContract("SPY-C-105", "SPY", date(2024, 2, 16), 105, option_type="call")
+        account.trade_option(date(2024, 1, 2), call, -1, 2)
+        self.assertAlmostEqual(account.cash, 10_200)
+        with self.assertRaisesRegex(ValueError, "uncover"):
+            account.trade_equity(date(2024, 1, 3), "SPY", -1, 101)
+        account.settle_expired(date(2024, 2, 16), {"SPY": 110})
+        self.assertEqual(account.equities["SPY"].shares, 0)
+        self.assertAlmostEqual(account.cash, 20_700)
+
+    def test_naked_call_is_rejected(self):
+        account = Account(20_000)
+        call = OptionContract("SPY-C-105", "SPY", date(2024, 2, 16), 105, option_type="call")
+        with self.assertRaisesRegex(ValueError, "covered call"):
+            account.trade_option(date(2024, 1, 2), call, -1, 2)
+
     def test_equity_purchase_cannot_spend_cash_secured_put_reserve(self):
         account = Account(10_000)
         contract = OptionContract("A", "SPY", date(2024, 2, 16), 50)

@@ -13,7 +13,7 @@ from apps.quant_research.engine import run_stage1_comparison
 from apps.quant_research.portfolio import ShareIntent, net_share_intents, target_weight_orders
 from apps.quant_research.reporting import publish_stage1_report, validate_published_run
 from apps.quant_research.risk import joint_factor_dollars
-from apps.quant_research.signals import generate_latest_signal
+from apps.quant_research.signals import build_latest_feature_batch, generate_latest_signal
 from decimal import Decimal
 
 
@@ -83,6 +83,31 @@ class StageZeroTest(unittest.TestCase):
         self.assertEqual(set(signal.scores), {"QQQ", "SPY"})
         self.assertEqual(signal.target_kind, "relative_return_score")
         self.assertNotIn("OLD", signal.scores)
+        longer_horizon = generate_latest_signal(
+            frame, ["ret_5"], SumModel(), "model-1", "selector", "snapshot-1",
+            datetime(2024, 1, 3, 21, tzinfo=timezone.utc), horizon=10,
+        )
+        self.assertNotEqual(signal.signal_id, longer_horizon.signal_id)
+
+    def test_latest_feature_batch_prefers_stable_instrument_id(self):
+        frame = pd.DataFrame({
+            "datetime": pd.to_datetime(["2024-01-03", "2024-01-03"]),
+            "instrument": ["OLD-A", "BBB"],
+            "instrument_id": ["inst-a", "inst-b"],
+            "ret_5": [0.2, 0.1],
+        })
+        batch = build_latest_feature_batch(
+            frame,
+            ["ret_5"],
+            "snapshot-1",
+            datetime(2024, 1, 3, 21, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            [row["instrument_id"] for row in batch.rows],
+            ["inst-a", "inst-b"],
+        )
+        self.assertEqual(batch.columns, ("ret_5",))
+        self.assertNotIn("instrument", batch.rows[0])
 
 
 class StageOneLedgerTest(unittest.TestCase):

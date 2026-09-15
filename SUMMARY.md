@@ -1,8 +1,29 @@
 # Project Summary
 
-> 历史文档说明（2026-09-09）：本文记录早期 AAPL/Nasdaq 原型。统一 QQQ/SPY、期权、
-> long-only 和模拟盘研究系统的当前状态见 `RESEARCH_IMPLEMENTATION_PROGRESS.md`，
-> 使用方法见 `RESEARCH_SYSTEM_USAGE.md`。
+## 当前统一研究系统（2026-09-15）
+
+仓库当前已经从 AAPL 原型扩展为 QQQ/SPY 多资产研究与 paper execution 系统。当前项目
+环境是 `/home/mgy/miniconda3/envs/qlib-project`（Python 3.11.15、Node.js 22.23.1）；它于
+2026-09-15 从已验证的 `qlib` 环境离线克隆，原环境未修改，`qlib-aapl` 已不存在。权威状态记录见
+`RESEARCH_IMPLEMENTATION_PROGRESS.md`，可执行命令见 `RESEARCH_SYSTEM_USAGE.md`，设计约束见
+`RESEARCH_SYSTEM_DESIGN.md`。
+
+本地工程链路现已覆盖：生产数据就绪审计、point-in-time 成分区间、canonical 行情与数据
+vintage、不可变前向信号证据、long-only 基线/成本/跨窗口证据门、Covered Call/Collar/
+保护性 Put 与动态现金对冲情景、统一事件账本、并发安全的
+模拟账户状态、只读券商账户/订单状态/成交/现金活动导入、人工订单包、对账、脱敏运维快照、
+Dashboard 当前账户与信号 API，以及 Python/Node CI。外部执行能力仍是
+`manual_export_only`，系统不会自行向券商提交订单。
+
+当前不能宣称完成的不是本地代码骨架，而是外部证据：仍需权威历史 Nasdaq-100 成分区间、
+真实复权行情和 as-reported 基本面、合格期权 bid/ask 与完整生命周期、真实券商导出，以及
+随时间自然成熟的前向标签。没有这些输入时，结果保持 `point_in_time=false`、
+`scenario_only`、`simulation_only` 或 `insufficient_evidence/not_robust`，不得解释为实盘能力或
+alpha 证明。
+
+## 历史 AAPL/Nasdaq 原型
+
+> 下文保留早期原型快照，仅用于追溯，不代表当前环境或统一系统完成度。
 
 ## 项目目标
 

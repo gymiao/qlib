@@ -1,0 +1,2 @@
+event_id,contract_id,event_type,effective_at,available_at,contracts,source,source_kind
+demo-assignment-1,DEMO-AAA-202403-P95,early_assignment,2024-01-15T13:00:00Z,2024-01-15T13:05:00Z,1,synthetic_demo,synthetic

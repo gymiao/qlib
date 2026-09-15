@@ -69,6 +69,33 @@ def black_scholes_put(
     )
 
 
+def black_scholes_call(
+    spot: float,
+    strike: float,
+    time_years: float,
+    rate: float,
+    volatility: float,
+    dividend_yield: float = 0.0,
+) -> float:
+    """Return a European call value for explicitly labelled scenario analysis."""
+    if spot <= 0 or strike <= 0:
+        raise ValueError("spot and strike must be positive")
+    if time_years <= 0:
+        return max(spot - strike, 0.0)
+    if volatility <= 0:
+        return max(spot * exp(-dividend_yield * time_years) - strike * exp(-rate * time_years), 0.0)
+    root_time = sqrt(time_years)
+    d1 = (
+        log(spot / strike)
+        + (rate - dividend_yield + 0.5 * volatility * volatility) * time_years
+    ) / (volatility * root_time)
+    d2 = d1 - volatility * root_time
+    return (
+        spot * exp(-dividend_yield * time_years) * _normal_cdf(d1)
+        - strike * exp(-rate * time_years) * _normal_cdf(d2)
+    )
+
+
 def put_delta(
     spot: float,
     strike: float,
@@ -88,3 +115,26 @@ def put_delta(
         + (rate - dividend_yield + 0.5 * volatility * volatility) * time_years
     ) / (volatility * sqrt(time_years))
     return exp(-dividend_yield * time_years) * (_normal_cdf(d1) - 1.0)
+
+
+def call_delta(
+    spot: float,
+    strike: float,
+    time_years: float,
+    rate: float,
+    volatility: float,
+    dividend_yield: float = 0.0,
+) -> float:
+    """Return the Black-Scholes delta of a long call."""
+    if spot <= 0 or strike <= 0:
+        raise ValueError("spot and strike must be positive")
+    if time_years <= 0:
+        return 1.0 if spot > strike else 0.0
+    if volatility <= 0:
+        forward_spot = spot * exp((rate - dividend_yield) * time_years)
+        return exp(-dividend_yield * time_years) if forward_spot > strike else 0.0
+    d1 = (
+        log(spot / strike)
+        + (rate - dividend_yield + 0.5 * volatility * volatility) * time_years
+    ) / (volatility * sqrt(time_years))
+    return exp(-dividend_yield * time_years) * _normal_cdf(d1)
